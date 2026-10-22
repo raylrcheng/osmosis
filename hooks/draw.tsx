@@ -192,7 +192,14 @@ export function drawMessage(
   const { Box, Text, Markdown } = els
   const pinned = isPinned ? cards : null
   return (
-    <Box flexDirection="row" alignItems="flex-start" marginTop={1} {...(pinned && [...pinned.values()].some(p => p.kind === 'below' && p.isSpare) ? { paddingBottom: 1 } : {})}>
+    // On a graphical surface the row above the reply is padding, not margin: a margin row belongs to the
+    // app's message wrapper, where a pointer moving off a word never ends its hover.
+    <Box
+      flexDirection="row"
+      alignItems="flex-start"
+      {...(isPinned ? { paddingTop: 1 } : { marginTop: 1 })}
+      {...(pinned && [...pinned.values()].some(p => p.kind === 'below' && p.isSpare) ? { paddingBottom: 1 } : {})}
+    >
       <Box minWidth={2} flexShrink={0}>
         <Text color="text">{isFirst ? BULLET : ' '}</Text>
       </Box>
