@@ -4,6 +4,8 @@
 
 Osmosis is a Claude Code plugin that teaches you Mandarin while you work. It shows some English words in Claude's replies as Chinese characters, so you pick up vocabulary by osmosis while you read. The change is on your screen only. Claude never sees it, and the saved conversation does not change. Point at a Chinese word to see its meaning, or click it for a full card with pinyin, an example sentence, and a voice.
 
+Osmosis also works in OpenAI Codex, as a vocab card under each reply. See [Codex (CLI and app)](#codex-cli-and-app).
+
 ## Install
 
 In a Claude Code terminal session:
@@ -138,6 +140,72 @@ Type `/osmosis export`, or press `e` in the word bank. Osmosis saves your saved 
 - An export holds only the words you saved since the last export. `/osmosis export all` exports every saved word again. A word you import twice updates its card; it does not make a copy.
 - The file holds only the card text. No settings or other data go in it.
 - It needs Anki 25.x on the same computer. Osmosis builds the deck with the Python that comes with Anki, in a temporary folder. It never opens your own Anki collection, so Anki can stay open.
+
+## Codex (CLI and app)
+
+Codex gives plugins no way to change how a reply shows, so Osmosis cannot swap words inside a Codex reply. Instead, when a reply ends, it shows a short vocab card under it:
+
+```
+↳ Hook · 🌱 中文 · beginner
+    请求 qǐngqiú · request · HSK 5 · 请 ask + 求 seek
+    页面 yèmiàn · page · 页 head + 面 face
+    图片 túpiàn · images · 图 diagram + 片 disk
+```
+
+- The card is on your screen only. Codex does not send it to the model, and it is not saved in the session.
+- The words come from the reply, at your level. Each word is checked against CC-CEDICT, as in Claude Code: the dictionary sets the pinyin, the HSK level, and the breakdown. A word the dictionary does not have is dropped.
+- Short replies and replies that are mostly code get no card.
+- The card shows about 4-5 seconds after the reply ends. Codex waits for the card before it ends the turn.
+- Hover, click, the pane, the word bank, the quiz, and Anki export are in Claude Code only.
+
+### Install in Codex
+
+From a shell:
+
+```
+codex plugin marketplace add raylrcheng/osmosis
+codex plugin add osmosis@osmosis
+```
+
+Then start `codex`, type `/hooks`, and trust the Osmosis Stop hook. Codex runs a plugin hook only after you trust it, and asks again when an update changes the hook.
+
+Requirements:
+
+- Node.js 22.18 or later, as `node` on your PATH. The hook runs the plugin's TypeScript files directly, with no build step.
+- A Codex version that can use `gpt-6-luna`. Codex CLI 0.153 cannot: the server rejects the model. Osmosis uses the newest `codex` it finds: the one on your PATH, or on macOS the one in the ChatGPT desktop app. To use an older Codex, pick another model, for example `$osmosis model gpt-5.6-luna`.
+
+### How Codex picks the words
+
+Osmosis sends the reply to `gpt-6-luna` at low reasoning effort. The call runs `codex exec` on your own Codex login, so it counts toward your Codex usage. A card costs about 5k input tokens and 40 output tokens.
+
+The `codex exec` run cannot start Osmosis again. It does not load your Codex config, plugins, or hooks, it runs in a read-only sandbox in its own folder, and it is not saved as a session. The hook also exits at once when it sees that folder or the `OSMOSIS_CHILD` variable.
+
+You can use a local model instead, as in Claude Code: `$osmosis model local`, then `$osmosis endpoint <url>` and `$osmosis local-model <name>` if needed.
+
+### Codex settings
+
+Type `$osmosis` and a setting in Codex, for example `$osmosis level intermediate`. Codex runs the settings script and shows its one-line reply. `$osmosis` alone shows the settings, today's usage, and how the last card went.
+
+You can also run the script yourself: `node ~/.codex/plugins/cache/osmosis/osmosis/<version>/codex/settings.mjs level intermediate`.
+
+| Setting | What it does |
+|---|---|
+| `on` / `off` | Shows the card, or not. |
+| `level beginner` | Which words: `beginner` (HSK 1-2), `intermediate` (HSK 3-4), or `advanced` (HSK 5-6). |
+| `density normal` | How many words: up to 2 (`low`), 4 (`normal`), or 6 (`high`). |
+| `model gpt-6-luna` | Who picks the words: `gpt-6-luna` (default), another Codex model, or `local`. |
+| `endpoint <url>` | The local server address. The default is `http://127.0.0.1:8080/v1`. |
+| `local-model <name>` | The model name sent to the local server. |
+| `cap 1m` | Stops the card after this many Codex model tokens a day: `off`, `100k`, `300k`, or `1m` (default). Local model tokens do not count. |
+| `codex <path>` | The `codex` binary for word picking. `auto` (default) picks the newest one. |
+
+Settings, the token count, and a short note on the last card (never the reply text) stay in `~/.codex/plugins/data/osmosis-osmosis/`.
+
+### Codex desktop app
+
+The desktop app uses the same plugins, hook trust and settings as the CLI, and runs the same hook. It does not show hook messages under the reply: to see the card, click the reply's `…` menu, then **Hook stats**, then the **Stop** row. Restart the app after installing the plugin.
+
+To test the Codex part: `node --test 'codex/**/*.test.mjs'`.
 
 ## Credits
 
