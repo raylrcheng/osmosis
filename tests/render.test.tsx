@@ -63,7 +63,7 @@ type Reply = string | null | ((prompt: string) => string | null | Promise<string
 function world(on: On, reply: Reply, store: Record<string, unknown> = {}, opts: WorldOptions = {}) {
   const clock = mock.clock(on, { now: 1_760_000_000_000 })
   mock.store(on, store)
-  const calls = { model: 0, example: 0, opened: [] as string[], fetched: [] as { url: string; body: string }[], status: [] as (string | undefined)[], runs: [] as { argv: readonly string[]; stdin: string }[] }
+  const calls = { model: 0, example: 0, opened: [] as string[], focused: [] as boolean[], fetched: [] as { url: string; body: string }[], status: [] as (string | undefined)[], runs: [] as { argv: readonly string[]; stdin: string }[] }
   const history = opts.history ?? [TEXT, LOW_TEXT]
   const clip = { value: '', writes: [] as string[], reads: 0 }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -111,6 +111,7 @@ function world(on: On, reply: Reply, store: Record<string, unknown> = {}, opts: 
   })
   on('ui.open', ($, e) => {
     calls.opened.push(e.id)
+    calls.focused.push(e.focus === true)
     return { value: { isPlaced: true as const } }
   })
   on('model.complete', async ($, e) => {
@@ -202,6 +203,21 @@ test('the band holds a hidden card under the same hover scope', async ($, on) =>
   expect(await band.find({ text: /Osmosis 中文 · beginner · 1 words today/ })).toBeDefined()
 })
 
+test('with Focus pane off, clicking a word opens the pane without the keyboard; /osmosis never takes it', async ($, on) => {
+  const { clock, calls } = world(on, REPLY)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const r = await $.command.run({ command: 'osmosis', args: 'focus off', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(r.text).toBe('Osmosis focus pane: Off. Clicking a word moves the keyboard to the pane, so its keys work at once.')
+  const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await clock.advance(2000)
+  await clock.settle()
+  await msg.press({ key: 'w-0' })
+  expect(calls.opened.at(-1)).toBe('osmosis')
+  expect(calls.focused.at(-1)).toBe(false)
+  await $.command.run({ command: 'osmosis', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(calls.focused.at(-1)).toBe(false)
+})
+
 test('clicking a word opens the pane on that word', async ($, on) => {
   const { clock, calls } = world(on, REPLY)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
@@ -210,6 +226,7 @@ test('clicking a word opens the pane on that word', async ($, on) => {
   await clock.settle()
   await msg.press({ key: 'w-0' })
   expect(calls.opened).toContain('osmosis')
+  expect(calls.focused.at(-1)).toBe(true)
   const pane = await $.ui.mount({
     plugin: 'osmosis',
     surface: 'terminal',

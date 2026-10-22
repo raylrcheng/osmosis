@@ -13,6 +13,7 @@ export type OsmosisSettings = {
   show: OsmosisShow
   isBandOn: boolean
   isStatusOn: boolean
+  isFocusOn: boolean
   copy: 'english' | 'shown'
   debug: boolean
   coverage: 'natural' | 'maximum'

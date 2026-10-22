@@ -674,9 +674,10 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 
 // ---------- pane actions ----------
 
-async function openPane($: $T) {
+async function openPane($: $T, isFromWord = false) {
   const s = await read($, settingsAtom)
-  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true })
+  const focus = isFromWord && s.isFocusOn ? { focus: true as const } : {}
+  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true, ...focus })
 }
 
 async function wordsOf($: $T, key: string | null): Promise<OsmosisWord[]> {
@@ -907,7 +908,7 @@ function drawReply(
       flushSoon($)
       await update($, selectedAtom, () => ({ key, index }))
       await update($, viewAtom, () => 'home' as const)
-      await openPane($)
+      await openPane($, true)
     })()
   const floating = cards ? [...cards.values()].filter(p => p.kind !== 'bar').length : 0
   note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0} columns=${view.columns}`)
@@ -936,7 +937,7 @@ export const register: Register = on => {
       await $.command.register({
         name: 'osmosis',
         description: 'Osmosis Chinese practice: open the word pane, or change settings',
-        argumentHint: '[help|on|off|level|density|show|coverage|card|band|status|copy|cap|model|endpoint|bank|quiz|export|lang]',
+        argumentHint: '[help|on|off|level|density|show|coverage|card|band|status|focus|copy|cap|model|endpoint|bank|quiz|export|lang]',
         immediate: true,
       })
     } catch {
