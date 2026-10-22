@@ -683,9 +683,14 @@ let wasPaneFocused = false
 // The desktop app gives the first key after a word click to the prompt without an edit for it, and
 // moves the pane's focus back to the prompt: read the box then, and take one pane key out of it.
 async function catchPaneKey($: $T) {
-  await $.clock.sleep(60)
-  const box = await $.prompt.read().catch(() => ({ text: '' }))
-  const k = promptPaneKey(box.text, '')
+  // Read at once so the key barely shows; again shortly after, in case it has not landed yet.
+  let k: string | null = null
+  for (const wait of [0, 20, 40]) {
+    if (wait) await $.clock.sleep(wait)
+    const box = await $.prompt.read().catch(() => ({ text: '' }))
+    k = promptPaneKey(box.text, '')
+    if (k || box.text !== '') break
+  }
   if (!k) return
   areKeysArmed = k !== 'x'
   await $.prompt.fill({ text: '' }).catch(() => undefined)
