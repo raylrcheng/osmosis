@@ -675,7 +675,10 @@ export type SwapLayout = { spots: Map<number, SwapSpot>; rows: number }
 
 function tokenWidth(t: Token, words: readonly OsmosisWord[], show: OsmosisSettings['show'], buttonCells: number): number {
   if (t.kind === 'parts') return cellWidth(t.parts.map(p => p.text).join(''))
-  return cellWidth(shownFull(words[t.index]!, show)) + cellWidth(t.trailing) + buttonCells
+  // The word is one button, and its dimmed reading a second one.
+  const w = words[t.index]!
+  const buttons = shownExtras(w, show).length ? 2 : 1
+  return cellWidth(shownFull(w, show)) + cellWidth(t.trailing) + buttons * buttonCells
 }
 
 // Markdown draws no code fences or emphasis marks; a table row gets a rule under it.

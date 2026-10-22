@@ -17,7 +17,7 @@ import type {
   OsmosisUsage,
   OsmosisWord,
 } from '../types'
-import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownExtras, shownFull, shownText, showParts, SHOW_PARTS, toggleShow } from './core'
+import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownExtras, shownText, showParts, SHOW_PARTS, toggleShow } from './core'
 import { usageLines } from './providers'
 import type { CardPlace, Part, Segment, Token } from './core'
 
@@ -49,13 +49,20 @@ function drawPart({ Text, Link }: Els, p: Part) {
 }
 
 function drawWord(els: Els, w: OsmosisWord, scope: string, s: OsmosisSettings, key: string, onPress: () => void, isPinned = false) {
-  const { Button, Text } = els
+  const { Box, Button, Text } = els
   const shown = shownText(w, s.show)
-  // A graphical surface draws the label, so there it carries what Show asks for, not the English.
   const extras = shownExtras(w, s.show)
-  const label = isPinned ? shownFull(w, s.show) : `${shown} (${w.en})`
+  // A graphical surface draws a button as plain text, ignoring colors inside it, but it can dim
+  // one: there the word and its reading are two buttons that hover and press as one.
+  if (isPinned)
+    return (
+      <Box flexDirection="row" flexShrink={0}>
+        <Button key={key} label={shown} plain hover={{ scope, inverse: true }} onPress={onPress} />
+        {extras.length ? <Button key={`${key}-more`} label={extras.join(' ')} plain dimColor hover={{ scope, inverse: true }} onPress={onPress} /> : null}
+      </Box>
+    )
   return (
-    <Button key={key} label={label} plain hover={{ scope, inverse: true }} onPress={onPress}>
+    <Button key={key} label={`${shown} (${w.en})`} plain hover={{ scope, inverse: true }} onPress={onPress}>
       <Text color={LEARN_COLOR} underline>{shown}</Text>
       {extras.length ? <Text dimColor> {extras.join(' ')}</Text> : null}
     </Button>
