@@ -632,5 +632,7 @@ describe('pane keys typed into the prompt', () => {
     expect(promptPaneKey('', 'a')).toBe(null)
     expect(promptPaneKey('', 'so')).toBe(null)
     expect(promptPaneKey('hi', 's')).toBe(null)
+    expect(promptPaneKey('s', '')).toBe('s')
+    expect(promptPaneKey('so', '')).toBe(null)
   })
 })

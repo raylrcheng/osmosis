@@ -1066,7 +1066,9 @@ export const register: Register = on => {
     }
     if (k === 'x') areKeysArmed = false
     await paneKey($, k)
-    return { text: e.text, cursor: e.cursor }
+    // Where the key is already in the box (the desktop app), take it back out.
+    if (e.inputText === '') void $.prompt.fill({ text: '' }).catch(() => undefined)
+    return { text: '', cursor: 0 }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {

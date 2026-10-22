@@ -997,8 +997,12 @@ export function ttsClips(words: readonly OsmosisWord[]): { text: string; name: s
 }
 
 // The pane key a keystroke into the prompt stands for: one of the pane's keys typed into an empty box.
+// The terminal reports the draft before the key and the key typed; the desktop app reports the draft
+// with the key already in it and nothing typed.
 const PANE_KEYS = new Set(['s', 'b', 'k', 'n', 'p', 'x'])
 
 export function promptPaneKey(draft: string, typed: string): string | null {
-  return draft === '' && PANE_KEYS.has(typed) ? typed : null
+  if (draft === '' && PANE_KEYS.has(typed)) return typed
+  if (typed === '' && PANE_KEYS.has(draft)) return draft
+  return null
 }
