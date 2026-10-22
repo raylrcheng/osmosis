@@ -895,7 +895,7 @@ function drawReply(
     note(`${status} swaps=0 (no prose block)`)
     return null
   }
-  if (cards && noteFallbacks(key, [...cards.entries()].filter(([, p]) => p.kind === 'bar').map(([i]) => scopeFor(key, i)))) wake($, 0)
+  if (cards && noteFallbacks(key, [...cards.entries()].filter(([, p]) => p.kind === 'bar' || p.compact !== undefined).map(([i]) => scopeFor(key, i)))) wake($, 0)
   const pick = (index: number) =>
     void (async () => {
       note(`click key=${key} index=${index}`)

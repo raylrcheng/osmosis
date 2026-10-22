@@ -731,7 +731,7 @@ export function cardRows(lines: readonly string[], inner: number): CardRow[] {
 }
 
 export type CardPlace =
-  | { kind: 'above' | 'below'; top: number; left: number; inner: number; height: number; edge: 'left' | 'right' }
+  | { kind: 'above' | 'below'; top: number; left: number; inner: number; height: number; edge: 'left' | 'right'; compact?: 1 | 2; shift?: number; isSpare?: boolean }
   | { kind: 'bar' }
 
 export type OnScreenRows = { first: number; last: number } | null | undefined
@@ -756,9 +756,7 @@ export function placeCard(
   const edge = GUTTER + spot.lineLeft + spot.x + width > columns ? 'right' : 'left'
   const site = (row: number) => row + 1
   const aboveTop = spot.row - height
-  // A graphical surface paints later words over the card and clips it to the message,
-  // so the card goes above a word with room for it, else to the bar.
-  if (isPinned) return aboveTop >= 0 ? { kind: 'above', top: aboveTop, left, inner, height, edge } : { kind: 'bar' }
+  if (isPinned) return placePinned(spot, lines, totalRows, columns, inner, height)
   if (aboveTop >= 0 && (!onScreen || site(aboveTop) >= onScreen.first)) return { kind: 'above', top: aboveTop, left, inner, height, edge }
   const belowTop = spot.row + 1
   const belowEnd = belowTop + height - 1
@@ -766,6 +764,39 @@ export function placeCard(
   // Fullscreen clips to the viewport, so a short message's card may cover the reply above.
   if (onScreen && onScreen.first === 0) return { kind: 'above', top: aboveTop, left, inner, height, edge }
   return { kind: 'bar' }
+}
+
+// A graphical surface sets text in a proportional font: a character averages about 0.8 of
+// the cell its boxes are measured in.
+const TEXT_CELLS = 0.8
+
+// A graphical surface clips a floating card to its message, so the card goes where the message
+// has room for it: above, else below, else a short card in the larger gap, else the bar.
+function placePinned(spot: SwapSpot, lines: readonly string[], totalRows: number, columns: number, inner: number, height: number): CardPlace {
+  const x = Math.round((spot.lineLeft + spot.x) * TEXT_CELLS)
+  const room = Math.floor(columns * TEXT_CELLS)
+  // `left` is from the message's left edge (a card below is drawn there); `shift` is from the
+  // word's left edge (a card above is pinned to the word), moved left only as far as it must.
+  const at = (width: number) => {
+    const start = Math.max(0, Math.min(x, room - width))
+    return { edge: 'left' as const, left: GUTTER + start, shift: start - x }
+  }
+  const below = totalRows - spot.row - 1
+  if (spot.row >= height) return { kind: 'above', top: spot.row - height, inner, height, ...at(inner + 4) }
+  if (below >= height) return { kind: 'below', top: spot.row + 1, inner, height, ...at(inner + 4) }
+  // A one-line message has no room either side, so it draws a spare row under itself for one.
+  const rows = Math.max(1, Math.min(2, Math.max(spot.row, below)))
+  const compact = rows as 1 | 2
+  const tight = Math.min(room, CARD_MAX + 10, Math.max(...compactLines(lines, compact).map(cellWidth)) + SPEAKER_CELLS + 2)
+  return below >= spot.row
+    ? { kind: 'below', top: spot.row + 1, inner: tight, height: rows, compact, ...at(tight + 2), ...(below === 0 ? { isSpare: true } : {}) }
+    : { kind: 'above', top: spot.row - rows, inner: tight, height: rows, compact, ...at(tight + 2) }
+}
+
+// The lines of a short card: the word, its reading and meaning, then (with two rows) the rest.
+export function compactLines(lines: readonly string[], rows: 1 | 2): string[] {
+  const first = [lines[0], lines[1]].filter(Boolean).join('  ')
+  return rows === 1 ? [first] : [first, lines.slice(2).join(' \u00b7 ')]
 }
 
 export function planCards(
@@ -776,7 +807,8 @@ export function planCards(
   onScreen: OnScreenRows,
   isPinned = false,
 ): Map<number, CardPlace> {
-  const layout = placeSwaps(segs, words, show, columns)
+  // A graphical surface fits more text on a line than its cell count says.
+  const layout = placeSwaps(segs, words, show, isPinned ? Math.floor(columns / TEXT_CELLS) : columns)
   const plans = new Map<number, CardPlace>()
   for (const [index, spot] of layout.spots) plans.set(index, placeCard(spot, cardLines(words[index]!), layout.rows, onScreen, columns, isPinned))
   return plans
