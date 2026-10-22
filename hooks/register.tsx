@@ -676,8 +676,13 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 
 async function openPane($: $T, isFromWord = false) {
   const s = await read($, settingsAtom)
-  const focus = isFromWord && s.isFocusOn ? { focus: true as const } : {}
-  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true, ...focus })
+  const isFocus = isFromWord && s.isFocusOn
+  if (isFocus) {
+    // Opening a pane that is already up only retitles it, so the focus request would be dropped.
+    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+    if (up?.isPlaced && !up.isFocused) await $.ui.close({ id: PANE }).catch(() => undefined)
+  }
+  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
 }
 
 async function wordsOf($: $T, key: string | null): Promise<OsmosisWord[]> {

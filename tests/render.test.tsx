@@ -203,6 +203,23 @@ test('the band holds a hidden card under the same hover scope', async ($, on) =>
   expect(await band.find({ text: /Osmosis 中文 · beginner · 1 words today/ })).toBeDefined()
 })
 
+test('clicking a word while the pane is open without the keyboard reopens it with focus', async ($, on) => {
+  const { clock, calls } = world(on, REPLY)
+  const closed: string[] = []
+  on('ui.close', ($, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: [{ id: 'osmosis', title: 'Osmosis 中文', isShown: true, isFocused: false, isPlaced: true, plugin: 'osmosis' }] }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await clock.advance(2000)
+  await clock.settle()
+  await msg.press({ key: 'w-0' })
+  expect(closed).toEqual(['osmosis'])
+  expect(calls.focused.at(-1)).toBe(true)
+})
+
 test('with Focus pane off, clicking a word opens the pane without the keyboard; /osmosis never takes it', async ($, on) => {
   const { clock, calls } = world(on, REPLY)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
