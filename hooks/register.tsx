@@ -43,8 +43,13 @@ import {
   ankiNotes,
   exportWords,
   ttsClips,
+  SHOW_PARTS,
+  showLabel,
+  showParts,
+  showValue,
+  toggleShow,
 } from './core'
-import type { CardPlace, HistoryRow, OnScreenRows, Segment } from './core'
+import type { CardPlace, HistoryRow, OnScreenRows, Segment, ShowPart } from './core'
 import { revertCopy } from './copyback'
 import type { ShownBlock } from './copyback'
 import { EMPTY_DICT, parseCedict, parseHsk, verifyWord } from './dict'
@@ -1075,6 +1080,22 @@ export const register: Register = on => {
       if (v === 'close') {
         await $.ui.close({ id: PANE })
         return { text: 'Osmosis pane closed.' }
+      }
+      if (v === 'show' && arg) {
+        // `show hanzi+english` sets the mix; `show +english` / `show -english` turns one part on or off.
+        const s = await read($, settingsAtom)
+        const one = /^([+-])(hanzi|pinyin|english)$/.exec(arg)
+        let show = s.show
+        if (one) {
+          const part = one[2] as ShowPart
+          if (showParts(s.show).has(part) !== (one[1] === '+')) show = toggleShow(s.show, part)
+        } else {
+          const parts = arg.split(/[+,]/)
+          if (parts.some(p => p !== 'both' && !SHOW_PARTS.some(([k]) => k === p))) return { text: settingsHelp() }
+          show = showValue(showParts(parts.join('+')))
+        }
+        const next = await changeSettings($, { show })
+        return { text: `Osmosis show: ${showLabel(next.show)}. What each swapped word shows: any mix of characters, pinyin and English.` }
       }
       const isToggle = v === 'on' || v === 'off'
       const row = SETTING_ROWS.find(r => (isToggle ? r.command === 'on|off' : r.command === v))

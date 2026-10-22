@@ -17,7 +17,7 @@ import type {
   OsmosisUsage,
   OsmosisWord,
 } from '../types'
-import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownText } from './core'
+import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownExtras, shownFull, shownText, showParts, SHOW_PARTS, toggleShow } from './core'
 import { usageLines } from './providers'
 import type { CardPlace, Part, Segment, Token } from './core'
 
@@ -52,11 +52,12 @@ function drawWord(els: Els, w: OsmosisWord, scope: string, s: OsmosisSettings, k
   const { Button, Text } = els
   const shown = shownText(w, s.show)
   // A graphical surface draws the label, so there it carries what Show asks for, not the English.
-  const label = isPinned ? (s.show === 'both' && w.romanization ? `${shown} ${w.romanization}` : shown) : `${shown} (${w.en})`
+  const extras = shownExtras(w, s.show)
+  const label = isPinned ? shownFull(w, s.show) : `${shown} (${w.en})`
   return (
     <Button key={key} label={label} plain hover={{ scope, inverse: true }} onPress={onPress}>
       <Text color={LEARN_COLOR} underline>{shown}</Text>
-      {s.show === 'both' && w.romanization ? <Text dimColor> {w.romanization}</Text> : null}
+      {extras.length ? <Text dimColor> {extras.join(' ')}</Text> : null}
     </Button>
   )
 }
@@ -285,6 +286,31 @@ export type PaneActions = {
   exportAnki: () => void
 }
 
+// Checkboxes, not one choice: a word can show any mix of its parts.
+function showRow({ Box, Button, Text }: Els, s: OsmosisSettings, act: PaneActions, isOpen: boolean) {
+  const parts = showParts(s.show)
+  return (
+    <Box flexDirection="row">
+      <Box width={14} flexShrink={0}>
+        <Button key="help-show" plain dimColor={!isOpen} onPress={() => act.toggleHelp('show')}>
+          <Text dimColor>{isOpen ? '\u25be ' : '\u25b8 '}</Text>
+          Show
+        </Button>
+      </Box>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={1} flexGrow={1} flexShrink={1}>
+        {SHOW_PARTS.map(([part, label]) => (
+          <Button
+            key={`show-${part}`}
+            label={`${parts.has(part) ? '\u2611' : '\u2610'} ${label}`}
+            variant={parts.has(part) ? 'primary' : 'secondary'}
+            onPress={() => act.setSettings({ show: toggleShow(s.show, part) })}
+          />
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
 function choiceRow<V extends string>(
   { Box, Text, Button }: Els,
   title: string,
@@ -329,7 +355,7 @@ export function drawSettings(els: Els, s: OsmosisSettings, act: PaneActions, cop
         const toggle = row.key === 'isOn' ? 'o' : row.key === 'isBandOn' ? 'v' : undefined
         return (
           <Box flexDirection="column">
-            {choiceRow(
+            {row.key === 'show' ? showRow(els, s, act, help === row.keyName) : choiceRow(
               els,
               row.label,
               row.keyName,

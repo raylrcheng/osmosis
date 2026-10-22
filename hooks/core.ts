@@ -508,9 +508,47 @@ export function pickVoice(listing: string): string | undefined {
 
 // ---------- drawing helpers ----------
 
+export type ShowPart = 'hanzi' | 'pinyin' | 'english'
+export const SHOW_PARTS: readonly (readonly [ShowPart, string])[] = [['hanzi', 'Hanzi'], ['pinyin', 'Pinyin'], ['english', 'English']]
+
+// What a swapped word shows; the target word itself (hanzi, else pinyin) is never left out.
+export function showParts(show: OsmosisSettings['show']): Set<ShowPart> {
+  const parts = new Set((show === 'both' ? 'hanzi+pinyin' : show).split('+').filter((p): p is ShowPart => SHOW_PARTS.some(([k]) => k === p)))
+  if (!parts.has('hanzi') && !parts.has('pinyin')) parts.add('hanzi')
+  return parts
+}
+
+export function showValue(parts: ReadonlySet<ShowPart>): string {
+  return SHOW_PARTS.map(([k]) => k).filter(k => parts.has(k)).join('+') || 'hanzi'
+}
+
+// Toggles one part, keeping hanzi or pinyin on.
+export function toggleShow(show: OsmosisSettings['show'], part: ShowPart): string {
+  const parts = showParts(show)
+  if (parts.has(part)) parts.delete(part)
+  else parts.add(part)
+  if (!parts.has('hanzi') && !parts.has('pinyin')) return showValue(showParts(show))
+  return showValue(parts)
+}
+
+export function showLabel(show: OsmosisSettings['show']): string {
+  const parts = showParts(show)
+  return SHOW_PARTS.filter(([k]) => parts.has(k)).map(([, label]) => label).join(' + ')
+}
+
 export function shownText(w: OsmosisWord, show: OsmosisSettings['show']): string {
-  if (show === 'pinyin' && w.romanization) return w.romanization
+  if (!showParts(show).has('hanzi') && w.romanization) return w.romanization
   return w.target
+}
+
+// The parts drawn dim after the word: its pinyin beside hanzi, then the English.
+export function shownExtras(w: OsmosisWord, show: OsmosisSettings['show']): string[] {
+  const parts = showParts(show)
+  return [parts.has('hanzi') && parts.has('pinyin') ? w.romanization : '', parts.has('english') && w.en ? `(${w.en})` : ''].filter(Boolean)
+}
+
+export function shownFull(w: OsmosisWord, show: OsmosisSettings['show']): string {
+  return [shownText(w, show), ...shownExtras(w, show)].join(' ')
 }
 
 let dayOffsetMin = 0
@@ -637,9 +675,7 @@ export type SwapLayout = { spots: Map<number, SwapSpot>; rows: number }
 
 function tokenWidth(t: Token, words: readonly OsmosisWord[], show: OsmosisSettings['show'], buttonCells: number): number {
   if (t.kind === 'parts') return cellWidth(t.parts.map(p => p.text).join(''))
-  const w = words[t.index]!
-  const extra = show === 'both' && w.romanization ? 1 + cellWidth(w.romanization) : 0
-  return cellWidth(shownText(w, show)) + extra + cellWidth(t.trailing) + buttonCells
+  return cellWidth(shownFull(words[t.index]!, show)) + cellWidth(t.trailing) + buttonCells
 }
 
 // Markdown draws no code fences or emphasis marks; a table row gets a rule under it.
@@ -867,7 +903,7 @@ export const SETTING_ROWS: readonly SettingRow[] = [
   { command: 'on|off', keyName: 'set', label: 'Osmosis', key: 'isOn', values: [['on', 'On', true], ['off', 'Off', false]], help: 'Turn all translation on or off.' },
   { command: 'level', keyName: 'level', label: 'Level', key: 'level', values: [['beginner', 'Beginner', 'beginner'], ['intermediate', 'Intermediate', 'intermediate'], ['advanced', 'Advanced', 'advanced']], help: 'Which words swap: HSK 1-2, 3-4, or 5-6.' },
   { command: 'density', keyName: 'density', label: 'Density', key: 'density', values: [['low', 'Low', 'low'], ['normal', 'Normal', 'normal'], ['high', 'High', 'high']], help: 'How many words swap: 1 per 3 sentences, 1, or 2 per sentence.' },
-  { command: 'show', keyName: 'show', label: 'Show', key: 'show', values: [['hanzi', 'Hanzi', 'hanzi'], ['pinyin', 'Pinyin', 'pinyin'], ['both', 'Both', 'both']], help: 'Show swapped words as characters, pinyin, or both.' },
+  { command: 'show', keyName: 'show', label: 'Show', key: 'show', values: [['hanzi', 'Hanzi', 'hanzi'], ['pinyin', 'Pinyin', 'pinyin'], ['english', 'English', 'english']], help: 'What each swapped word shows: any mix of characters, pinyin and English.' },
   { command: 'coverage', keyName: 'coverage', label: 'Coverage', key: 'coverage', values: [['natural', 'Natural', 'natural'], ['maximum', 'Maximum', 'maximum']], help: 'Natural keeps English grammar intact; Maximum swaps more words.' },
   { command: 'card', keyName: 'card', label: 'Hover card', key: 'card', values: [['word', 'At the word', 'word'], ['bar', 'In the bar', 'bar'], ['both', 'Both', 'both']], help: 'Where the word card appears when you point at a word.' },
   { command: 'band', keyName: 'bar', label: 'Hover bar', key: 'isBandOn', values: [['on', 'On', true], ['off', 'Off', false]], help: "The line above the prompt with today's count and bar cards." },
@@ -881,7 +917,8 @@ export function settingsHelp(): string {
   const lines = ['Osmosis settings (type /osmosis <setting> <value>, or use the pane):']
   for (const row of SETTING_ROWS) {
     const values = row.values.map(v => v[0]).join('|')
-    lines.push(`- ${row.command === 'on|off' ? 'on|off' : `${row.command} ${values}`}: ${row.help}`)
+    const usage = row.command === 'on|off' ? 'on|off' : row.key === 'show' ? 'show hanzi+pinyin+english (any mix; or show +english / -english)' : `${row.command} ${values}`
+    lines.push(`- ${usage}: ${row.help}`)
   }
   lines.push('- endpoint <url>: Address of the local model server (default http://127.0.0.1:8080/v1).')
   lines.push('- local-model <name>: Model name sent to the local server (Ollama, LM Studio).')
