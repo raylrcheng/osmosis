@@ -1072,6 +1072,19 @@ export const register: Register = on => {
     return { text: '', cursor: 0 }
   })
 
+  // The desktop app does not always raise an edit for a key; the box's change still says it.
+  on('prompt.change', async ($, e, next) => {
+    const r = await next(e)
+    if (!areKeysArmed || e.origin.kind === 'plugin' || e.text === '') return r
+    const k = promptPaneKey(e.text, '')
+    areKeysArmed = k !== null && k !== 'x'
+    if (k) {
+      await paneKey($, k)
+      void $.prompt.fill({ text: '' }).catch(() => undefined)
+    }
+    return r
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s = await read($, settingsAtom)
     if (!s.isOn || !s.isBandOn || e.props.hasSurvey) return next(e)
