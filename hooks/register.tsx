@@ -1053,7 +1053,8 @@ export const register: Register = on => {
   })
 
   on('prompt.edit', async ($, e, next) => {
-    if (!areKeysArmed) return next(e)
+    // An edit that changes nothing (a caret move as the box takes focus back) keeps the keys armed.
+    if (!areKeysArmed || (e.text === '' && e.inputText === '')) return next(e)
     const k = promptPaneKey(e.text, e.inputText)
     if (!k) {
       areKeysArmed = false
