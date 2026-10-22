@@ -678,6 +678,19 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 // A surface that ignores the pane's focus request (the desktop app) still lets the pane's keys
 // work: after a word click, one of them typed into an empty prompt is taken as the pane's key.
 let areKeysArmed = false
+let wasPaneFocused = false
+
+// The desktop app gives the first key after a word click to the prompt without an edit for it, and
+// moves the pane's focus back to the prompt: read the box then, and take one pane key out of it.
+async function catchPaneKey($: $T) {
+  await $.clock.sleep(60)
+  const box = await $.prompt.read().catch(() => ({ text: '' }))
+  const k = promptPaneKey(box.text, '')
+  if (!k) return
+  areKeysArmed = k !== 'x'
+  await $.prompt.fill({ text: '' }).catch(() => undefined)
+  await paneKey($, k)
+}
 
 async function paneKey($: $T, k: string) {
   const selected = await read($, selectedAtom)
@@ -698,7 +711,8 @@ async function paneKey($: $T, k: string) {
 async function openPane($: $T, isFromWord = false) {
   const s = await read($, settingsAtom)
   const isFocus = isFromWord && s.isFocusOn
-  areKeysArmed = isFocus
+  // Only an empty prompt arms the pane keys, so a draft is never taken for one.
+  areKeysArmed = isFocus && (await $.prompt.read().catch(() => ({ text: '' }))).text === ''
   if (isFocus) {
     // Opening a pane that is already up only retitles it, so the focus request would be dropped.
     const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
@@ -706,6 +720,7 @@ async function openPane($: $T, isFromWord = false) {
   }
   await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
 }
+
 
 async function wordsOf($: $T, key: string | null): Promise<OsmosisWord[]> {
   if (!key) return []
@@ -1072,19 +1087,6 @@ export const register: Register = on => {
     return { text: '', cursor: 0 }
   })
 
-  // The desktop app does not always raise an edit for a key; the box's change still says it.
-  on('prompt.change', async ($, e, next) => {
-    const r = await next(e)
-    if (!areKeysArmed || e.origin.kind === 'plugin' || e.text === '') return r
-    const k = promptPaneKey(e.text, '')
-    areKeysArmed = k !== null && k !== 'x'
-    if (k) {
-      await paneKey($, k)
-      void $.prompt.fill({ text: '' }).catch(() => undefined)
-    }
-    return r
-  })
-
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s = await read($, settingsAtom)
     if (!s.isOn || !s.isBandOn || e.props.hasSurvey) return next(e)
@@ -1108,6 +1110,8 @@ export const register: Register = on => {
     const s = await read($, settingsAtom)
     const view = await read($, viewAtom)
     note(`pane surface=${e.surface} placement=${e.props.placement} focused=${e.props.isFocused}`)
+    if (wasPaneFocused && !e.props.isFocused && areKeysArmed) void catchPaneKey($)
+    wasPaneFocused = e.props.isFocused
     const progress = await read($, progressAtom)
     if (view === 'bank') return drawBank(els, progress, actions($, null, [], ''))
     if (view === 'quiz') return drawQuiz(els, await read($, quizAtom), actions($, null, [], ''))
