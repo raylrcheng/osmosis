@@ -995,3 +995,10 @@ export function ttsClips(words: readonly OsmosisWord[]): { text: string; name: s
   const texts = new Set(words.flatMap(w => [w.target, w.exampleTarget]).filter(Boolean))
   return [...texts].map(text => ({ text, name: audioName(text) }))
 }
+
+// The pane key a keystroke into the prompt stands for: one of the pane's keys typed into an empty box.
+const PANE_KEYS = new Set(['s', 'b', 'k', 'n', 'p', 'x'])
+
+export function promptPaneKey(draft: string, typed: string): string | null {
+  return draft === '' && PANE_KEYS.has(typed) ? typed : null
+}

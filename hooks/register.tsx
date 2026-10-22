@@ -48,6 +48,7 @@ import {
   showParts,
   showValue,
   toggleShow,
+  promptPaneKey,
 } from './core'
 import type { CardPlace, HistoryRow, OnScreenRows, Segment, ShowPart } from './core'
 import { revertCopy } from './copyback'
@@ -674,9 +675,30 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 
 // ---------- pane actions ----------
 
+// A surface that ignores the pane's focus request (the desktop app) still lets the pane's keys
+// work: after a word click, one of them typed into an empty prompt is taken as the pane's key.
+let areKeysArmed = false
+
+async function paneKey($: $T, k: string) {
+  const selected = await read($, selectedAtom)
+  const key = selected?.key ?? (await read($, latestAtom))
+  const words = await wordsOf($, key)
+  const w = selected && selected.key === key ? words[selected.index] : undefined
+  const example = w ? await exampleFor($, w, false) : null
+  const act = actions($, key, words, example?.status === 'ok' ? example.target : '')
+  note(`pane key=${k} from prompt`)
+  if (k === 'x') return act.close()
+  if (k === 'n' || k === 'p') return act.step(k === 'n' ? 1 : -1)
+  if (!w) return
+  if (k === 's') act.speak(w)
+  else if (k === 'b') act.toggleSave(w)
+  else act.toggleKnown(w)
+}
+
 async function openPane($: $T, isFromWord = false) {
   const s = await read($, settingsAtom)
   const isFocus = isFromWord && s.isFocusOn
+  areKeysArmed = isFocus
   if (isFocus) {
     // Opening a pane that is already up only retitles it, so the focus request would be dropped.
     const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
@@ -1028,6 +1050,23 @@ export const register: Register = on => {
       note(`${status} error=${err instanceof Error ? err.name : 'unknown'}`)
       return next(e)
     }
+  })
+
+  on('prompt.edit', async ($, e, next) => {
+    if (!areKeysArmed) return next(e)
+    const k = promptPaneKey(e.text, e.inputText)
+    if (!k) {
+      areKeysArmed = false
+      return next(e)
+    }
+    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+    if (!up?.isPlaced) {
+      areKeysArmed = false
+      return next(e)
+    }
+    if (k === 'x') areKeysArmed = false
+    await paneKey($, k)
+    return { text: e.text, cursor: e.cursor }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
