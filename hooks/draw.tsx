@@ -17,7 +17,7 @@ import type {
   OsmosisUsage,
   OsmosisWord,
 } from '../types'
-import { SETTING_ROWS, SPEAKER, cardLines, cardRows, compactLines, cellWidth, fitCells, langInfo, padCells, scopeFor, shownText } from './core'
+import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownText } from './core'
 import { usageLines } from './providers'
 import type { CardPlace, Part, Segment, Token } from './core'
 
@@ -110,22 +110,6 @@ function drawPinnedCard({ Box, Text, Button }: Els, w: OsmosisWord, scope: strin
       {w.romanization ? ` ${w.romanization}` : ''}
     </Text>
   )
-  if (p.compact) {
-    const gloss = [w.pos, w.gloss].filter(Boolean).join(' \u00b7 ')
-    const rest = compactLines(lines, p.compact)[1]
-    return (
-      <Box position="absolute" {...place} display="none" hover={{ scope, display: 'flex' }} backgroundColor={CARD_BACKGROUND} flexDirection="column" paddingX={1} width={p.inner + 2} overflow="hidden" flexShrink={0}>
-        <Box flexDirection="row" gap={1}>
-          <Box flexShrink={0}>{head}</Box>
-          {speaker}
-          <Box flexShrink={1} overflow="hidden">
-            <Text wrap="truncate-end">{gloss}</Text>
-          </Box>
-        </Box>
-        {rest ? <Text dimColor wrap="truncate-end">{rest}</Text> : null}
-      </Box>
-    )
-  }
   return (
     <Box
       position="absolute"
@@ -198,7 +182,7 @@ export function drawMessage(
       flexDirection="row"
       alignItems="flex-start"
       {...(isPinned ? { paddingTop: 1 } : { marginTop: 1 })}
-      {...(pinned && [...pinned.values()].some(p => p.kind === 'below' && p.isSpare) ? { paddingBottom: 1 } : {})}
+      {...(pinned ? { paddingBottom: Math.max(0, ...[...pinned.values()].map(p => (p.kind === 'bar' ? 0 : (p.spare ?? 0)))) } : {})}
     >
       <Box minWidth={2} flexShrink={0}>
         <Text color="text">{isFirst ? BULLET : ' '}</Text>

@@ -547,7 +547,7 @@ const mountDesk = ($: Engine, text: string) =>
 const SHORT_DESK =
   'I opened the computer and read the file, then wrote a short note about the build, checked the tests once more, and pushed the whole change to the shared branch so the rest of the team can review it today.'
 
-test('on desktop, a card floats above its word, else below it, else as a short card; all on a solid background', async ($, on) => {
+test('on desktop, every word gets the whole card: above, else below, with spare rows under a short reply', async ($, on) => {
   const { clock } = world(on, REPLY, {}, { history: [FIRST_TEXT, LOW_TEXT, SHORT_DESK] })
   await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
   const first = await mountDesk($, FIRST_TEXT)
@@ -569,14 +569,15 @@ test('on desktop, a card floats above its word, else below it, else as a short c
   expect(below?.hover?.scope).toBe(hoverOf(firstTree, 'w-0')?.scope)
   expect(walk(walk(firstTree, n => n.props?.key === 'k-0')[0], n => n.props?.position === 'absolute')).toHaveLength(0)
   const shortTree = (await short.drawn()) as Node
-  const compact = floating(shortTree)[0]
-  expect(shortTree.props?.paddingBottom).toBe(1)
-  expect(compact?.props?.top).toBe(1)
-  expect(compact?.props?.borderStyle).toBeUndefined()
-  expect(JSON.stringify(compact)).toContain('diànnǎo')
+  const full = floating(shortTree)[0]
+  expect(full?.props?.top).toBe(1)
+  expect(full?.props?.borderStyle).toBe('round')
+  expect(JSON.stringify(full)).toContain('click for more')
+  expect(shortTree.props?.paddingBottom).toBeGreaterThan(1)
+  expect((await low.drawn() as Node).props?.paddingBottom).toBe(0)
   const band = await $.ui.mount({ ...BAND_PROPS, surface: 'desktop' })
   const scopes = walk(await band.drawn(), n => n.hover?.display === 'flex').map(n => n.hover?.scope)
-  expect(scopes).toContain(hoverOf(shortTree, 'w-0')?.scope)
+  expect(scopes).not.toContain(hoverOf(shortTree, 'w-0')?.scope)
   expect(scopes).not.toContain(hoverOf(firstTree, 'w-0')?.scope)
 })
 
