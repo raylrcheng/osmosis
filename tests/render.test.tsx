@@ -143,6 +143,35 @@ test('the reply draws as the engine draws it while no translation exists', async
   expect(await ui.find({ type: 'Button' })).toBeUndefined()
 })
 
+test('a session another Claude session started stays in English', async ($, on) => {
+  mock.env(on, { CLAUDE_CODE_CHILD_SESSION: '1' })
+  const { clock, calls } = world(on, REPLY)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await settleAll(clock)
+  expect(await ui.find({ text: 'ENGINE' })).toBeDefined()
+  expect(await ui.find({ type: 'Button' })).toBeUndefined()
+  const band = await $.ui.mount(BAND)
+  expect(await band.find({ text: 'ENGINE-BAND' })).toBeDefined()
+  expect(calls.model).toBe(0)
+  expect(calls.status).toEqual([])
+})
+
+test('a subagent reply stays in English; the same reply from the main loop is translated', async ($, on) => {
+  on('turn.complete', ($, e) => ({ text: e.answer }))
+  const { clock, calls } = world(on, REPLY, {}, { history: [] })
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const ui = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await $.turn.complete({ answer: TEXT, durationMs: 10, isAborted: false, turnId: 't1', agentId: 'a1', reason: 'answer' })
+  await settleAll(clock)
+  expect(calls.model).toBe(0)
+  expect(await ui.find({ text: 'ENGINE' })).toBeDefined()
+  await $.turn.complete({ answer: TEXT, durationMs: 10, isAborted: false, turnId: 't2', reason: 'answer' })
+  await settleAll(clock)
+  expect(calls.model).toBe(1)
+  expect(await ui.find({ key: 'w-0' })).toBeDefined()
+})
+
 test('a translation in state draws a hover-scoped word button, on terminal and desktop', async ($, on) => {
   const { clock, calls } = world(on, REPLY)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })

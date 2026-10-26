@@ -102,6 +102,7 @@ The status line shows `🌱 中文 · <level>` while Osmosis is on, unless you t
 - Osmosis splits each finished reply into chunks of about 4 sentences and sends them to Claude Haiku 5.5 at low effort, all at once. The first words show in about 1-2 seconds. Each chunk's words show as soon as that chunk is done.
 - A long reply costs about 115 Haiku tokens per sentence. Opening a word for its example costs one more small call, once per word. Osmosis remembers old translations and examples, so they show again at once.
 - If a translation fails, the reply shows in plain English.
+- Osmosis translates only your own replies. A subagent's messages stay in English. A Claude session that another Claude session started, such as an agent's worker, runs with Osmosis off.
 - On macOS and Linux, text you copy from a translated reply pastes as English. Osmosis watches the clipboard (with `pbpaste`, `wl-paste` or `xclip`) only to revert its own swaps, and only while a translated reply is on screen; it changes nothing else and keeps no copy of what you copied. A copy that spans two replies stays as shown.
 - A typed command prints one short line, for example "Osmosis level: beginner." Claude sees that line, as it sees any command output. The pane buttons print nothing.
 
