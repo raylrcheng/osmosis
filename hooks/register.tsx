@@ -143,6 +143,8 @@ let isClipBusy = false
 const trace: string[] = []
 let isTraceDirty = false
 let isTraceOn = false
+// A session another Claude session started (an agent's worker) stays in English.
+let isChild = false
 let tracePath: string | null = null
 const TRACE_LINES = 400
 // Each session tags its lines; sessions share one debug.log.
@@ -918,6 +920,12 @@ function drawReply(
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     try {
+      isChild = Boolean(await $.env.get('CLAUDE_CODE_CHILD_SESSION'))
+    } catch {
+      isChild = false
+    }
+    if (isChild) return next(e)
+    try {
       await loadAll($)
     } catch {
       // first run, or a store that cannot be read: defaults stand
@@ -946,6 +954,7 @@ export const register: Register = on => {
   })
 
   on('ui.copy', async ($, e, next) => {
+    if (isChild) return next(e)
     try {
       const s = await read($, settingsAtom)
       if (s.isOn && s.copy === 'english') {
@@ -969,7 +978,7 @@ export const register: Register = on => {
 
   on('turn.complete', async ($, e, next) => {
     const answer = normText(e.answer)
-    if (e.agentId === undefined && answer.length >= MIN_CHARS) {
+    if (!isChild && e.agentId === undefined && answer.length >= MIN_CHARS) {
       try {
         await update($, finalsAtom, list => [...list.filter(f => f !== answer), answer].slice(-MAX_FINALS))
       } catch {
@@ -981,7 +990,7 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AssistantMessage' }, async ($, e, next) => {
     const text = e.props.text
-    if (e.props.isSummary || text.length < MIN_CHARS) return next(e)
+    if (isChild || e.props.isSummary || text.length < MIN_CHARS) return next(e)
     const s = await read($, settingsAtom)
     if (!s.isOn) return next(e)
     const key = keyFor(text, s)
@@ -1020,6 +1029,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (isChild) return next(e)
     const s = await read($, settingsAtom)
     if (!s.isOn || !s.isBandOn || e.props.hasSurvey) return next(e)
     const recent = await read($, recentAtom)
