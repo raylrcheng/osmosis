@@ -870,7 +870,7 @@ function actions($: $T, key: string | null, words: readonly OsmosisWord[], examp
   }
 }
 
-type ReplyView = { columns: number; onScreen: OnScreenRows; isFirst: boolean }
+type ReplyView = { columns: number; onScreen: OnScreenRows; isFirst: boolean; isPinned: boolean }
 
 function drawReply(
   $: $T,
@@ -882,11 +882,11 @@ function drawReply(
   s: OsmosisSettings,
   status: string,
 ) {
-  const memo = `${key}|${words.length}|${view.columns}|${s.show}|${s.card}|${view.onScreen?.first}|${view.onScreen?.last}`
+  const memo = `${key}|${words.length}|${view.columns}|${s.show}|${s.card}|${view.onScreen?.first}|${view.onScreen?.last}|${view.isPinned}`
   let plan = planMemo.get(memo)
   if (!plan) {
     const segs = planMessage(text, words)
-    const cards = s.card === 'bar' ? null : planCards(segs, words, s.show, view.columns, view.onScreen)
+    const cards = s.card === 'bar' ? null : planCards(segs, words, s.show, view.columns, view.onScreen, view.isPinned)
     const swaps = segs.reduce((n, seg) => n + (seg.kind === 'prose' ? seg.lines.reduce((m, l) => m + l.tokens.filter(t => t.kind === 'swap').length, 0) : 0), 0)
     plan = { segs, cards, swaps }
     planMemo.set(memo, plan)
@@ -907,13 +907,13 @@ function drawReply(
       await openPane($)
     })()
   const floating = cards ? [...cards.values()].filter(p => p.kind !== 'bar').length : 0
-  note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0}`)
+  note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0} columns=${view.columns}`)
   const say = (index: number) => {
     note(`say key=${key} index=${index}`)
     const w = words[index]
     if (w) void speak($, w, '')
   }
-  return drawMessage(els, segs, words, key, view.isFirst, s, pick, cards, say)
+  return drawMessage(els, segs, words, key, view.isFirst, s, pick, cards, say, view.isPinned)
 }
 
 
@@ -1020,7 +1020,7 @@ export const register: Register = on => {
     if (visible.size + Number(isUnreported) !== was) await syncClip($)
     try {
       const { Box, Text, Button, Markdown, Link } = $.ui.resolve(e)
-      const view = { columns: e.viewport?.columns ?? 100, onScreen: e.props.onScreen, isFirst: e.props.isFirstOfReply }
+      const view = { columns: e.viewport?.columns ?? 100, onScreen: e.props.onScreen, isFirst: e.props.isFirstOfReply, isPinned: e.surface !== 'terminal' }
       return drawReply($, { Box, Text, Button, Markdown, Link }, view, text, words, key, s, status) ?? next(e)
     } catch (err) {
       note(`${status} error=${err instanceof Error ? err.name : 'unknown'}`)

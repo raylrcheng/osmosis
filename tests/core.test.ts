@@ -306,6 +306,35 @@ describe('floating card placement', () => {
     expect(placeCard(spot(1), lines, 2, { first: 1, last: 2 }, 100)).toEqual({ kind: 'bar' })
     expect(placeCard(spot(1), lines, 2, null, 100)).toEqual({ kind: 'bar' })
   })
+  test('on desktop, a card near the right edge moves left to fit', () => {
+    const late = { row: 7, x: 110, avail: 120, lineLeft: 2 }
+    expect(placeCard(late, lines, 20, undefined, 100, true)).toMatchObject({ kind: 'above', shift: -36 })
+  })
+})
+
+import { planCards, placeSwaps } from '../hooks/core'
+
+describe('desktop card planning', () => {
+  const swap = (en: string, at: number) => ({
+    en, occurrence: 1, target: '猫', romanization: 'māo', pos: 'noun', gloss: en, literal: '',
+    exampleTarget: '', exampleRomanization: '', exampleEn: '', level: 1, start: at, end: at + en.length,
+  })
+  test('word buttons take room, so a line of swaps wraps sooner', () => {
+    const text = 'cat '.repeat(30).trim()
+    const words = Array.from({ length: 30 }, (_, i) => swap('cat', i * 4))
+    const segs = planMessage(text, words)
+    expect(placeSwaps(segs, words, 'hanzi', 125).spots.get(29)?.lineRow).toBe(0)
+    expect(placeSwaps(segs, words, 'hanzi', 125, 2).spots.get(29)?.lineRow).toBe(1)
+  })
+  test('a late word that may start the next row gets its card there, above or below', () => {
+    const late = `${'word '.repeat(22)}cat`
+    const words = [swap('cat', 110)]
+    const lower = [swap('cat', 752 + 110)]
+    const above = planCards(planMessage(`${'word '.repeat(150)}\n\n${late}`, lower), lower, 'hanzi', 100, undefined, true).get(0)
+    expect(above).toMatchObject({ kind: 'above', shift: 0 })
+    const below = planCards(planMessage(late, words), words, 'hanzi', 100, undefined, true).get(0)
+    expect(below).toMatchObject({ kind: 'below', top: 2, left: 2 })
+  })
 })
 
 import { revertCopy } from '../hooks/copyback'
