@@ -210,11 +210,18 @@ test('clicking a word while the pane is open without the keyboard reopens it wit
     closed.push(e.id)
     return { value: undefined }
   })
-  on('ui.panes', () => ({ value: [{ id: 'osmosis', title: 'Osmosis 中文', isShown: true, isFocused: false, isPlaced: true, plugin: 'osmosis' }] }))
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
   const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
   await clock.advance(2000)
   await clock.settle()
+  const pane = await $.ui.mount({
+    plugin: 'osmosis',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'osmosis',
+    props: { title: 'Osmosis 中文', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: SCROLL, view: {} },
+  })
+  await pane.drawn()
   await msg.press({ key: 'w-0' })
   expect(closed).toEqual(['osmosis'])
   expect(calls.focused.at(-1)).toBe(true)

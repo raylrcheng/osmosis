@@ -679,6 +679,7 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 // work: after a word click, one of them typed into an empty prompt is taken as the pane's key.
 let areKeysArmed = false
 let wasPaneFocused = false
+let isPaneUp = false
 
 // The desktop app gives the first key after a word click to the prompt without an edit for it, and
 // moves the pane's focus back to the prompt: read the box then, and take one pane key out of it.
@@ -713,17 +714,18 @@ async function paneKey($: $T, k: string) {
   else act.toggleKnown(w)
 }
 
-async function openPane($: $T, isFromWord = false) {
-  const s = await read($, settingsAtom)
-  const isFocus = isFromWord && s.isFocusOn
+// A word click opens the pane before its first await: an open later than that no longer counts as
+// the person's press, and below 144 columns the engine then leaves the pane undrawn.
+function openPane($: $T, isFromWord = false, settings?: OsmosisSettings): Promise<unknown> {
+  if (!settings) return read($, settingsAtom).then(s => openPane($, isFromWord, s))
+  const isFocus = isFromWord && settings.isFocusOn
+  // Opening a pane that is already up only retitles it, so the focus request would be dropped.
+  if (isFocus && isPaneUp && !wasPaneFocused) void $.ui.close({ id: PANE }).catch(() => undefined)
+  const opened = $.ui.open({ id: PANE, title: `Osmosis ${langInfo(settings.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
   // Only an empty prompt arms the pane keys, so a draft is never taken for one.
-  areKeysArmed = isFocus && (await $.prompt.read().catch(() => ({ text: '' }))).text === ''
-  if (isFocus) {
-    // Opening a pane that is already up only retitles it, so the focus request would be dropped.
-    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
-    if (up?.isPlaced && !up.isFocused) await $.ui.close({ id: PANE }).catch(() => undefined)
-  }
-  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
+  areKeysArmed = false
+  if (isFocus) void $.prompt.read().then(box => (areKeysArmed = box.text === ''), () => undefined)
+  return opened
 }
 
 
@@ -949,14 +951,16 @@ function drawReply(
     return null
   }
   if (cards && noteFallbacks(key, [...cards.entries()].filter(([, p]) => p.kind === 'bar').map(([i]) => scopeFor(key, i)))) wake($, 0)
-  const pick = (index: number) =>
+  const pick = (index: number) => {
+    note(`click key=${key} index=${index}`)
+    flushSoon($)
+    const opened = openPane($, true, s)
     void (async () => {
-      note(`click key=${key} index=${index}`)
-      flushSoon($)
       await update($, selectedAtom, () => ({ key, index }))
       await update($, viewAtom, () => 'home' as const)
-      await openPane($, true)
+      await opened
     })()
+  }
   const floating = cards ? [...cards.values()].filter(p => p.kind !== 'bar').length : 0
   note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0} columns=${view.columns}`)
   const say = (index: number) => {
@@ -1110,6 +1114,12 @@ export const register: Register = on => {
     return drawBand({ Box, Text, Button, Markdown, Link }, recent, s, count, e.props.bodyColumns, notice, await read($, fallbacksAtom))
   })
 
+  on('ui.close', { id: PANE }, ($, e, next) => {
+    isPaneUp = false
+    wasPaneFocused = false
+    return next(e)
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = (({ Box, Text, Button, Markdown, Link }) => ({ Box, Text, Button, Markdown, Link }))($.ui.resolve(e))
     const s = await read($, settingsAtom)
@@ -1117,6 +1127,7 @@ export const register: Register = on => {
     note(`pane surface=${e.surface} placement=${e.props.placement} focused=${e.props.isFocused}`)
     if (wasPaneFocused && !e.props.isFocused && areKeysArmed) void catchPaneKey($)
     wasPaneFocused = e.props.isFocused
+    isPaneUp = true
     const progress = await read($, progressAtom)
     if (view === 'bank') return drawBank(els, progress, actions($, null, [], ''))
     if (view === 'quiz') return drawQuiz(els, await read($, quizAtom), actions($, null, [], ''))
