@@ -32,8 +32,8 @@ Requirements:
 
 - Read a reply as usual. A few words show in Chinese, underlined and in color.
 - Point at a Chinese word. A small card shows next to the word: the characters, pinyin, word type, meaning, a character-by-character breakdown, and the HSK level. Click 🔊 on the card to hear the word. The "Hover card" setting can move this card to the bar above the prompt.
-- Click a Chinese word. A side pane opens with the full card, an example sentence, and buttons. The example loads when you open the word.
-- In the pane, press these keys (click the pane first):
+- Click a Chinese word. A side pane opens with the full card, an example sentence, and buttons. The example loads when you open the word. In the terminal, the pane takes the keyboard, so you can press its keys at once (turn this off with the Focus pane setting).
+- In the pane, press these keys (if the pane does not have the keyboard, click it first):
   - `s`: say the word and the example aloud in a Chinese voice.
   - `b`: save the word to your word bank, or remove it.
   - `k`: mark the word as known. Osmosis then shows it less often.
@@ -53,11 +53,12 @@ Type `/osmosis` to open the pane. Its Settings section has a button for each cho
 - **Osmosis** (On, Off): Turn all translation on or off. Press `o` to switch.
 - **Level** (Beginner, Intermediate, Advanced): Which words swap: HSK 1-2, 3-4, or 5-6. Intermediate also swaps up to 1 short phrase per block, Advanced up to 2 (with idioms).
 - **Density** (Low, Normal, High): How many words swap: about 1 per 3 sentences, 1, or 2 per sentence.
-- **Show** (Hanzi, Pinyin, Both): Show swapped words as characters, pinyin, or both.
+- **Show** (checkboxes: Hanzi, Pinyin, English): What each swapped word shows, in any mix. Hanzi or Pinyin always stays on; English adds the meaning in brackets after the word, for example `电脑 diànnǎo (computer)`.
 - **Coverage** (Natural, Maximum): Natural keeps English grammar intact; Maximum swaps more words. Natural swaps nouns, adjectives and base-form verbs, plus a linking word that opens a sentence. Maximum gives more swaps, some read awkwardly in English word order, and allows a phrase at every level.
-- **Hover card** (At the word, In the bar, Both): Where the word card appears when you point at a word. With At the word, a card with no room in its own message shows above that message. If the top of the message is off screen, the card shows in the bar instead.
+- **Hover card** (At the word, In the bar, Both): Where the word card appears when you point at a word. With At the word, a card with no room in its own message shows above that message. If the top of the message is off screen, the card shows in the bar instead. In the Claude desktop app, the card shows just above the word, or below it near the top of a reply; a reply too short for the card keeps a few blank rows under itself so the card fits.
 - **Hover bar** (On, Off): The line above the prompt with today's count and bar cards. Press `v` to switch.
 - **Status line** (On, Off): The `🌱 中文 · <level>` entry under the prompt.
+- **Focus pane** (On, Off): Clicking a word moves the keyboard to the pane, so its keys work at once. The pane takes the keyboard only when the prompt is empty. The Claude desktop app does not move the keyboard yet.
 - **Copy** (English, As shown): English pastes copied text in English; As shown does not.
 - **Daily cap** (Off, 100k, 300k, 1M): Stop translating after this many Haiku tokens a day. The default is 300k. At the cap, replies stay in English and the bar says "daily cap reached". Local model tokens do not count.
 - **Model** (Haiku, Local): Haiku (default) or a local model on your machine. See "Run it on a local model".
@@ -79,11 +80,12 @@ The same settings also work as typed commands:
 | `/osmosis on` / `/osmosis off` | Turns Osmosis on or off. Off shows all replies in plain English. |
 | `/osmosis level beginner` | Sets the level: `beginner`, `intermediate`, or `advanced`. |
 | `/osmosis density normal` | Sets the density: `low`, `normal`, or `high`. |
-| `/osmosis show hanzi` | Sets how a word shows: `hanzi`, `pinyin`, or `both`. |
+| `/osmosis show hanzi+pinyin` | Sets what a word shows: any mix of `hanzi`, `pinyin` and `english`. `/osmosis show +english` or `-english` turns one part on or off. |
 | `/osmosis coverage natural` | Sets the coverage: `natural` keeps English grammar intact; `maximum` gives more swaps, some read awkwardly in English word order. |
 | `/osmosis card word` | Sets where the hover card shows: `word` (next to the word), `bar` (in the bar above the prompt), or `both`. |
 | `/osmosis band on` / `/osmosis band off` | Shows or hides the hover bar above the prompt. |
 | `/osmosis status on` / `/osmosis status off` | Shows or hides the Osmosis entry in the status line. |
+| `/osmosis focus on` / `/osmosis focus off` | Sets whether clicking a word moves the keyboard to the pane. |
 | `/osmosis copy english` / `/osmosis copy shown` | Sets what a copied selection pastes as: the English original, or the text as shown. |
 | `/osmosis cap 300k` | Sets the daily cap: `off`, `100k`, `300k`, or `1m` Haiku tokens. |
 | `/osmosis model haiku` | Sets the model: `haiku` or `local`. |

@@ -63,7 +63,7 @@ type Reply = string | null | ((prompt: string) => string | null | Promise<string
 function world(on: On, reply: Reply, store: Record<string, unknown> = {}, opts: WorldOptions = {}) {
   const clock = mock.clock(on, { now: 1_760_000_000_000 })
   mock.store(on, store)
-  const calls = { model: 0, example: 0, opened: [] as string[], fetched: [] as { url: string; body: string }[], status: [] as (string | undefined)[], runs: [] as { argv: readonly string[]; stdin: string }[] }
+  const calls = { model: 0, example: 0, opened: [] as string[], focused: [] as boolean[], fetched: [] as { url: string; body: string }[], status: [] as (string | undefined)[], runs: [] as { argv: readonly string[]; stdin: string }[] }
   const history = opts.history ?? [TEXT, LOW_TEXT]
   const clip = { value: '', writes: [] as string[], reads: 0 }
   on('session.start', ($, e) => ({ cwd: e.cwd }))
@@ -111,6 +111,7 @@ function world(on: On, reply: Reply, store: Record<string, unknown> = {}, opts: 
   })
   on('ui.open', ($, e) => {
     calls.opened.push(e.id)
+    calls.focused.push(e.focus === true)
     return { value: { isPlaced: true as const } }
   })
   on('model.complete', async ($, e) => {
@@ -231,6 +232,38 @@ test('the band holds a hidden card under the same hover scope', async ($, on) =>
   expect(await band.find({ text: /Osmosis 中文 · beginner · 1 words today/ })).toBeDefined()
 })
 
+test('clicking a word while the pane is open without the keyboard reopens it with focus', async ($, on) => {
+  const { clock, calls } = world(on, REPLY)
+  const closed: string[] = []
+  on('ui.close', ($, e) => {
+    closed.push(e.id)
+    return { value: undefined }
+  })
+  on('ui.panes', () => ({ value: [{ id: 'osmosis', title: 'Osmosis 中文', isShown: true, isFocused: false, isPlaced: true, plugin: 'osmosis' }] }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await clock.advance(2000)
+  await clock.settle()
+  await msg.press({ key: 'w-0' })
+  expect(closed).toEqual(['osmosis'])
+  expect(calls.focused.at(-1)).toBe(true)
+})
+
+test('with Focus pane off, clicking a word opens the pane without the keyboard; /osmosis never takes it', async ($, on) => {
+  const { clock, calls } = world(on, REPLY)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const r = await $.command.run({ command: 'osmosis', args: 'focus off', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(r.text).toBe('Osmosis focus pane: Off. Clicking a word moves the keyboard to the pane, so its keys work at once.')
+  const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await clock.advance(2000)
+  await clock.settle()
+  await msg.press({ key: 'w-0' })
+  expect(calls.opened.at(-1)).toBe('osmosis')
+  expect(calls.focused.at(-1)).toBe(false)
+  await $.command.run({ command: 'osmosis', args: '', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  expect(calls.focused.at(-1)).toBe(false)
+})
+
 test('clicking a word opens the pane on that word', async ($, on) => {
   const { clock, calls } = world(on, REPLY)
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
@@ -239,6 +272,7 @@ test('clicking a word opens the pane on that word', async ($, on) => {
   await clock.settle()
   await msg.press({ key: 'w-0' })
   expect(calls.opened).toContain('osmosis')
+  expect(calls.focused.at(-1)).toBe(true)
   const pane = await $.ui.mount({
     plugin: 'osmosis',
     surface: 'terminal',
@@ -570,6 +604,46 @@ test('a card goes below a first-row word, above a lower word, and to the bar at 
   expect(floating(await short.drawn())).toHaveLength(0)
 })
 
+const mountDesk = ($: Engine, text: string) =>
+  $.ui.mount({ plugin: 'osmosis', surface: 'desktop', viewport: { columns: 100, rows: 40 }, component: 'AssistantMessage', props: { text, isFirstOfReply: true } })
+
+const SHORT_DESK =
+  'I opened the computer and read the file, then wrote a short note about the build, checked the tests once more, and pushed the whole change to the shared branch so the rest of the team can review it today.'
+
+test('on desktop, every word gets the whole card: above, else below, with spare rows under a short reply', async ($, on) => {
+  const { clock } = world(on, REPLY, {}, { history: [FIRST_TEXT, LOW_TEXT, SHORT_DESK] })
+  await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
+  const first = await mountDesk($, FIRST_TEXT)
+  const low = await mountDesk($, LOW_TEXT)
+  const short = await $.ui.mount({ plugin: 'osmosis', surface: 'desktop', viewport: { columns: 200, rows: 40 }, component: 'AssistantMessage', props: { text: SHORT_DESK, isFirstOfReply: true } })
+  await settleAll(clock)
+  const tree = (await low.drawn()) as Node
+  expect(floating(tree)).toHaveLength(0)
+  const card = walk(walk(tree, n => n.props?.key === 'k-0')[0], n => n.props?.position === 'absolute')[0]
+  expect(card?.props?.bottom).toBe(1)
+  expect(card?.props?.left).toBe(0)
+  expect(card?.props?.backgroundColor).toBeDefined()
+  expect(card?.hover?.scope).toBe(hoverOf(tree, 'w-0')?.scope)
+  expect(JSON.stringify(card)).toContain('click for more')
+  const firstTree = (await first.drawn()) as Node
+  const below = floating(firstTree)[0]
+  expect(below?.props?.top).toBe(1)
+  expect(below?.props?.backgroundColor).toBeDefined()
+  expect(below?.hover?.scope).toBe(hoverOf(firstTree, 'w-0')?.scope)
+  expect(walk(walk(firstTree, n => n.props?.key === 'k-0')[0], n => n.props?.position === 'absolute')).toHaveLength(0)
+  const shortTree = (await short.drawn()) as Node
+  const full = floating(shortTree)[0]
+  expect(full?.props?.top).toBe(1)
+  expect(full?.props?.borderStyle).toBe('round')
+  expect(JSON.stringify(full)).toContain('click for more')
+  expect(shortTree.props?.paddingBottom).toBeGreaterThan(1)
+  expect((await low.drawn() as Node).props?.paddingBottom).toBe(0)
+  const band = await $.ui.mount({ ...BAND_PROPS, surface: 'desktop' })
+  const scopes = walk(await band.drawn(), n => n.hover?.display === 'flex').map(n => n.hover?.scope)
+  expect(scopes).not.toContain(hoverOf(shortTree, 'w-0')?.scope)
+  expect(scopes).not.toContain(hoverOf(firstTree, 'w-0')?.scope)
+})
+
 test('in word mode, a word with no room for a floating card gets a bar card; others do not', async ($, on) => {
   const { clock } = world(on, REPLY, {}, { history: [LOW_TEXT, SHORT_TEXT] })
   await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
@@ -833,4 +907,26 @@ test('/osmosis export without Anki says so and writes nothing', async ($, on) =>
   await settleAll(clock)
   expect(toasts).toEqual([r.text])
   expect(calls.runs).toEqual([])
+})
+
+test('Show is a row of checkboxes; English adds the meaning after the word; /osmosis show sets or toggles parts', async ($, on) => {
+  const { clock } = world(on, REPLY)
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const run = (args: string) => $.command.run({ command: 'osmosis', args, origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await clock.advance(2000)
+  await clock.settle()
+  expect((await run('show +english')).text).toBe('Osmosis show: Hanzi + English. What each swapped word shows: any mix of characters, pinyin and English.')
+  await clock.settle()
+  expect(JSON.stringify(walk(await msg.drawn(), n => n.props?.key === 'w-0')[0])).toContain('(computer)')
+  expect((await run('show pinyin,english')).text).toContain('Pinyin + English')
+  expect((await run('show -english')).text).toContain('show: Pinyin.')
+  expect((await run('show -pinyin')).text).toContain('show: Pinyin.')
+  expect((await run('show nonsense')).text).toContain('Osmosis settings')
+  const pane = await $.ui.mount(PANE)
+  expect((await pane.find({ key: 'show-pinyin' }))?.props.variant).toBe('primary')
+  expect((await pane.find({ key: 'show-hanzi' }))?.props.variant).toBe('secondary')
+  await pane.press({ key: 'show-english' })
+  await clock.settle()
+  expect((await run('show +hanzi')).text).toBe('Osmosis show: Hanzi + Pinyin + English. What each swapped word shows: any mix of characters, pinyin and English.')
 })
