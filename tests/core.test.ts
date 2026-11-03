@@ -306,6 +306,35 @@ describe('floating card placement', () => {
     expect(placeCard(spot(1), lines, 2, { first: 1, last: 2 }, 100)).toEqual({ kind: 'bar' })
     expect(placeCard(spot(1), lines, 2, null, 100)).toEqual({ kind: 'bar' })
   })
+  test('on desktop, a card near the right edge moves left to fit', () => {
+    const late = { row: 7, x: 110, avail: 120, lineLeft: 2 }
+    expect(placeCard(late, lines, 20, undefined, 100, true)).toMatchObject({ kind: 'above', shift: -36 })
+  })
+})
+
+import { planCards, placeSwaps } from '../hooks/core'
+
+describe('desktop card planning', () => {
+  const swap = (en: string, at: number) => ({
+    en, occurrence: 1, target: '猫', romanization: 'māo', pos: 'noun', gloss: en, literal: '',
+    exampleTarget: '', exampleRomanization: '', exampleEn: '', level: 1, start: at, end: at + en.length,
+  })
+  test('word buttons take room, so a line of swaps wraps sooner', () => {
+    const text = 'cat '.repeat(30).trim()
+    const words = Array.from({ length: 30 }, (_, i) => swap('cat', i * 4))
+    const segs = planMessage(text, words)
+    expect(placeSwaps(segs, words, 'hanzi', 125).spots.get(29)?.lineRow).toBe(0)
+    expect(placeSwaps(segs, words, 'hanzi', 125, 2).spots.get(29)?.lineRow).toBe(1)
+  })
+  test('a late word that may start the next row gets its card there, above or below', () => {
+    const late = `${'word '.repeat(22)}cat`
+    const words = [swap('cat', 110)]
+    const lower = [swap('cat', 752 + 110)]
+    const above = planCards(planMessage(`${'word '.repeat(150)}\n\n${late}`, lower), lower, 'hanzi', 100, undefined, true).get(0)
+    expect(above).toMatchObject({ kind: 'above', shift: 0 })
+    const below = planCards(planMessage(late, words), words, 'hanzi', 100, undefined, true).get(0)
+    expect(below).toMatchObject({ kind: 'below', top: 2, left: 2 })
+  })
 })
 
 import { revertCopy } from '../hooks/copyback'
@@ -329,6 +358,10 @@ describe('copy as English', () => {
   test('both mode with pinyin and pinyin mode map back', () => {
     expect(revertCopy('the 电脑 diànnǎo and read', blocks, 'both')).toBe('the computer and read')
     expect(revertCopy('opened the diànnǎo and', blocks, 'pinyin')).toBe('opened the computer and')
+  })
+  test('a mix with English maps back, the English in brackets included', () => {
+    expect(revertCopy('the 电脑 diànnǎo (computer) and read', blocks, 'hanzi+pinyin+english')).toBe('the computer and read')
+    expect(revertCopy('the 电脑 (computer) and', blocks, 'hanzi+english')).toBe('the computer and')
   })
   test('unrelated Chinese and non-matching text are left alone', () => {
     expect(revertCopy('我的电脑很快', blocks, 'hanzi')).toBe(null)
@@ -561,5 +594,45 @@ describe('anki export', () => {
     expect(audioName('')).toBe('')
     const words = [{ ...saved('表格', 'biǎogé', 'table'), exampleTarget: '表格很长。' }, saved('表格', 'biǎogé', 'table')]
     expect(ttsClips(words)).toEqual([{ text: '表格', name: audioName('表格') }, { text: '表格很长。', name: audioName('表格很长。') }])
+  })
+})
+
+import { showLabel, showParts, shownFull, showValue, toggleShow } from '../hooks/core'
+
+describe('show: any mix of hanzi, pinyin and English', () => {
+  const w = { en: 'computer', occurrence: 1, target: '电脑', romanization: 'diànnǎo', pos: 'noun', gloss: 'computer', literal: '', exampleTarget: '', exampleRomanization: '', exampleEn: '', level: 1, start: 0, end: 8 }
+  test('old values keep their meaning, and hanzi or pinyin is always on', () => {
+    expect([...showParts('both')]).toEqual(['hanzi', 'pinyin'])
+    expect([...showParts('pinyin')]).toEqual(['pinyin'])
+    expect([...showParts('english')]).toEqual(['english', 'hanzi'])
+    expect(showValue(showParts('english+pinyin'))).toBe('pinyin+english')
+  })
+  test('a toggle turns one part on or off but never leaves English alone', () => {
+    expect(toggleShow('hanzi', 'english')).toBe('hanzi+english')
+    expect(toggleShow('hanzi+english', 'english')).toBe('hanzi')
+    expect(toggleShow('hanzi+english', 'hanzi')).toBe('hanzi+english')
+    expect(toggleShow('both', 'hanzi')).toBe('pinyin')
+  })
+  test('the word shows its parts in order, the English in brackets', () => {
+    expect(shownFull(w, 'hanzi')).toBe('电脑')
+    expect(shownFull(w, 'both')).toBe('电脑 diànnǎo')
+    expect(shownFull(w, 'pinyin+english')).toBe('diànnǎo (computer)')
+    expect(shownFull(w, 'hanzi+pinyin+english')).toBe('电脑 diànnǎo (computer)')
+    expect(showLabel('hanzi+pinyin+english')).toBe('Hanzi + Pinyin + English')
+  })
+})
+
+import { promptPaneKey } from '../hooks/core'
+
+describe('pane keys typed into the prompt', () => {
+  test('one pane key into an empty prompt is the pane key; anything else is typing', () => {
+    expect(promptPaneKey('', 's')).toBe('s')
+    expect(promptPaneKey('', 'x')).toBe('x')
+    expect(promptPaneKey('', 'S')).toBe(null)
+    expect(promptPaneKey('', 'a')).toBe(null)
+    expect(promptPaneKey('', 'so')).toBe(null)
+    expect(promptPaneKey('hi', 's')).toBe(null)
+    expect(promptPaneKey('s', '')).toBe('s')
+    expect(promptPaneKey('so', '')).toBe(null)
   })
 })

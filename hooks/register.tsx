@@ -43,8 +43,14 @@ import {
   ankiNotes,
   exportWords,
   ttsClips,
+  SHOW_PARTS,
+  showLabel,
+  showParts,
+  showValue,
+  toggleShow,
+  promptPaneKey,
 } from './core'
-import type { CardPlace, HistoryRow, OnScreenRows, Segment } from './core'
+import type { CardPlace, HistoryRow, OnScreenRows, Segment, ShowPart } from './core'
 import { revertCopy } from './copyback'
 import type { ShownBlock } from './copyback'
 import { EMPTY_DICT, parseCedict, parseHsk, verifyWord } from './dict'
@@ -671,10 +677,59 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 
 // ---------- pane actions ----------
 
-async function openPane($: $T) {
-  const s = await read($, settingsAtom)
-  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true })
+// A surface that ignores the pane's focus request (the desktop app) still lets the pane's keys
+// work: after a word click, one of them typed into an empty prompt is taken as the pane's key.
+let areKeysArmed = false
+let wasPaneFocused = false
+let isPaneUp = false
+
+// The desktop app gives the first key after a word click to the prompt without an edit for it, and
+// moves the pane's focus back to the prompt: read the box then, and take one pane key out of it.
+async function catchPaneKey($: $T) {
+  // Read at once so the key barely shows; again shortly after, in case it has not landed yet.
+  let k: string | null = null
+  for (const wait of [0, 20, 40]) {
+    if (wait) await $.clock.sleep(wait)
+    const box = await $.prompt.read().catch(() => ({ text: '' }))
+    k = promptPaneKey(box.text, '')
+    if (k || box.text !== '') break
+  }
+  if (!k) return
+  areKeysArmed = k !== 'x'
+  await $.prompt.fill({ text: '' }).catch(() => undefined)
+  await paneKey($, k)
 }
+
+async function paneKey($: $T, k: string) {
+  const selected = await read($, selectedAtom)
+  const key = selected?.key ?? (await read($, latestAtom))
+  const words = await wordsOf($, key)
+  const w = selected && selected.key === key ? words[selected.index] : undefined
+  const example = w ? await exampleFor($, w, false) : null
+  const act = actions($, key, words, example?.status === 'ok' ? example.target : '')
+  note(`pane key=${k} from prompt`)
+  if (k === 'x') return act.close()
+  if (k === 'n' || k === 'p') return act.step(k === 'n' ? 1 : -1)
+  if (!w) return
+  if (k === 's') act.speak(w)
+  else if (k === 'b') act.toggleSave(w)
+  else act.toggleKnown(w)
+}
+
+// A word click opens the pane before its first await: an open later than that no longer counts as
+// the person's press, and below 144 columns the engine then leaves the pane undrawn.
+function openPane($: $T, isFromWord = false, settings?: OsmosisSettings): Promise<unknown> {
+  if (!settings) return read($, settingsAtom).then(s => openPane($, isFromWord, s))
+  const isFocus = isFromWord && settings.isFocusOn
+  // Opening a pane that is already up only retitles it, so the focus request would be dropped.
+  if (isFocus && isPaneUp && !wasPaneFocused) void $.ui.close({ id: PANE }).catch(() => undefined)
+  const opened = $.ui.open({ id: PANE, title: `Osmosis ${langInfo(settings.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
+  // Only an empty prompt arms the pane keys, so a draft is never taken for one.
+  areKeysArmed = false
+  if (isFocus) void $.prompt.read().then(box => (areKeysArmed = box.text === ''), () => undefined)
+  return opened
+}
+
 
 async function wordsOf($: $T, key: string | null): Promise<OsmosisWord[]> {
   if (!key) return []
@@ -870,7 +925,7 @@ function actions($: $T, key: string | null, words: readonly OsmosisWord[], examp
   }
 }
 
-type ReplyView = { columns: number; onScreen: OnScreenRows; isFirst: boolean }
+type ReplyView = { columns: number; onScreen: OnScreenRows; isFirst: boolean; isPinned: boolean }
 
 function drawReply(
   $: $T,
@@ -882,11 +937,11 @@ function drawReply(
   s: OsmosisSettings,
   status: string,
 ) {
-  const memo = `${key}|${words.length}|${view.columns}|${s.show}|${s.card}|${view.onScreen?.first}|${view.onScreen?.last}`
+  const memo = `${key}|${words.length}|${view.columns}|${s.show}|${s.card}|${view.onScreen?.first}|${view.onScreen?.last}|${view.isPinned}`
   let plan = planMemo.get(memo)
   if (!plan) {
     const segs = planMessage(text, words)
-    const cards = s.card === 'bar' ? null : planCards(segs, words, s.show, view.columns, view.onScreen)
+    const cards = s.card === 'bar' ? null : planCards(segs, words, s.show, view.columns, view.onScreen, view.isPinned)
     const swaps = segs.reduce((n, seg) => n + (seg.kind === 'prose' ? seg.lines.reduce((m, l) => m + l.tokens.filter(t => t.kind === 'swap').length, 0) : 0), 0)
     plan = { segs, cards, swaps }
     planMemo.set(memo, plan)
@@ -898,22 +953,24 @@ function drawReply(
     return null
   }
   if (cards && noteFallbacks(key, [...cards.entries()].filter(([, p]) => p.kind === 'bar').map(([i]) => scopeFor(key, i)))) wake($, 0)
-  const pick = (index: number) =>
+  const pick = (index: number) => {
+    note(`click key=${key} index=${index}`)
+    flushSoon($)
+    const opened = openPane($, true, s)
     void (async () => {
-      note(`click key=${key} index=${index}`)
-      flushSoon($)
       await update($, selectedAtom, () => ({ key, index }))
       await update($, viewAtom, () => 'home' as const)
-      await openPane($)
+      await opened
     })()
+  }
   const floating = cards ? [...cards.values()].filter(p => p.kind !== 'bar').length : 0
-  note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0}`)
+  note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0} columns=${view.columns}`)
   const say = (index: number) => {
     note(`say key=${key} index=${index}`)
     const w = words[index]
     if (w) void speak($, w, '')
   }
-  return drawMessage(els, segs, words, key, view.isFirst, s, pick, cards, say)
+  return drawMessage(els, segs, words, key, view.isFirst, s, pick, cards, say, view.isPinned)
 }
 
 
@@ -939,7 +996,7 @@ export const register: Register = on => {
       await $.command.register({
         name: 'osmosis',
         description: 'Osmosis Chinese practice: open the word pane, or change settings',
-        argumentHint: '[help|on|off|level|density|show|coverage|card|band|status|copy|cap|model|endpoint|bank|quiz|export|lang]',
+        argumentHint: '[help|on|off|level|density|show|coverage|card|band|status|focus|copy|cap|model|endpoint|bank|quiz|export|lang]',
         immediate: true,
       })
     } catch {
@@ -1020,12 +1077,32 @@ export const register: Register = on => {
     if (visible.size + Number(isUnreported) !== was) await syncClip($)
     try {
       const { Box, Text, Button, Markdown, Link } = $.ui.resolve(e)
-      const view = { columns: e.viewport?.columns ?? 100, onScreen: e.props.onScreen, isFirst: e.props.isFirstOfReply }
+      const view = { columns: e.viewport?.columns ?? 100, onScreen: e.props.onScreen, isFirst: e.props.isFirstOfReply, isPinned: e.surface !== 'terminal' }
       return drawReply($, { Box, Text, Button, Markdown, Link }, view, text, words, key, s, status) ?? next(e)
     } catch (err) {
       note(`${status} error=${err instanceof Error ? err.name : 'unknown'}`)
       return next(e)
     }
+  })
+
+  on('prompt.edit', async ($, e, next) => {
+    // An edit that changes nothing (a caret move as the box takes focus back) keeps the keys armed.
+    if (!areKeysArmed || (e.text === '' && e.inputText === '')) return next(e)
+    const k = promptPaneKey(e.text, e.inputText)
+    if (!k) {
+      areKeysArmed = false
+      return next(e)
+    }
+    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+    if (!up?.isPlaced) {
+      areKeysArmed = false
+      return next(e)
+    }
+    if (k === 'x') areKeysArmed = false
+    await paneKey($, k)
+    // Where the key is already in the box (the desktop app), take it back out.
+    if (e.inputText === '') void $.prompt.fill({ text: '' }).catch(() => undefined)
+    return { text: '', cursor: 0 }
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
@@ -1047,11 +1124,20 @@ export const register: Register = on => {
     return drawBand({ Box, Text, Button, Markdown, Link }, recent, s, count, e.props.bodyColumns, notice, await read($, fallbacksAtom))
   })
 
+  on('ui.close', { id: PANE }, ($, e, next) => {
+    isPaneUp = false
+    wasPaneFocused = false
+    return next(e)
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = (({ Box, Text, Button, Markdown, Link }) => ({ Box, Text, Button, Markdown, Link }))($.ui.resolve(e))
     const s = await read($, settingsAtom)
     const view = await read($, viewAtom)
     note(`pane surface=${e.surface} placement=${e.props.placement} focused=${e.props.isFocused}`)
+    if (wasPaneFocused && !e.props.isFocused && areKeysArmed) void catchPaneKey($)
+    wasPaneFocused = e.props.isFocused
+    isPaneUp = true
     const progress = await read($, progressAtom)
     if (view === 'bank') return drawBank(els, progress, actions($, null, [], ''))
     if (view === 'quiz') return drawQuiz(els, await read($, quizAtom), actions($, null, [], ''))
@@ -1066,7 +1152,7 @@ export const register: Register = on => {
     const example: ExampleView | null = w ? await exampleFor($, w, isCapReached(usage, today, s)) : null
     const exampleText = example?.status === 'ok' ? example.target : ''
     const copyNote = clipTool === null ? 'Unavailable: no pbpaste, wl-paste or xclip found.' : ''
-    return drawHome(els, s, words, index, progress, actions($, key, words, exampleText), example, usage, today, copyNote, await read($, helpAtom))
+    return drawHome(els, s, words, index, progress, actions($, key, words, exampleText), example, usage, today, copyNote, await read($, helpAtom), e.surface !== 'terminal')
   })
 
   on('command.run', { command: 'osmosis' }, async ($, e) => {
@@ -1085,6 +1171,22 @@ export const register: Register = on => {
       if (v === 'close') {
         await $.ui.close({ id: PANE })
         return { text: 'Osmosis pane closed.' }
+      }
+      if (v === 'show' && arg) {
+        // `show hanzi+english` sets the mix; `show +english` / `show -english` turns one part on or off.
+        const s = await read($, settingsAtom)
+        const one = /^([+-])(hanzi|pinyin|english)$/.exec(arg)
+        let show = s.show
+        if (one) {
+          const part = one[2] as ShowPart
+          if (showParts(s.show).has(part) !== (one[1] === '+')) show = toggleShow(s.show, part)
+        } else {
+          const parts = arg.split(/[+,]/)
+          if (parts.some(p => p !== 'both' && !SHOW_PARTS.some(([k]) => k === p))) return { text: settingsHelp() }
+          show = showValue(showParts(parts.join('+')))
+        }
+        const next = await changeSettings($, { show })
+        return { text: `Osmosis show: ${showLabel(next.show)}. What each swapped word shows: any mix of characters, pinyin and English.` }
       }
       const isToggle = v === 'on' || v === 'off'
       const row = SETTING_ROWS.find(r => (isToggle ? r.command === 'on|off' : r.command === v))
