@@ -1,5 +1,5 @@
 import type { OsmosisSettings, OsmosisWord } from '../types'
-import { planMessage, shownText } from './core'
+import { planMessage, shownFull } from './core'
 
 export type ShownBlock = { text: string; words: readonly OsmosisWord[] }
 
@@ -23,8 +23,7 @@ export function displayed(block: ShownBlock, show: OsmosisSettings['show']): Sho
           continue
         }
         const w = block.words[t.index]!
-        const shown = shownText(w, show)
-        const text = show === 'both' && w.romanization ? `${shown} ${w.romanization}` : shown
+        const text = shownFull(w, show)
         swaps.push({ start: out.length, end: out.length + text.length, en: w.en })
         out += text + t.trailing
       }

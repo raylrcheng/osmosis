@@ -17,7 +17,7 @@ import type {
   OsmosisUsage,
   OsmosisWord,
 } from '../types'
-import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownText } from './core'
+import { SETTING_ROWS, SPEAKER, cardLines, cardRows, cellWidth, fitCells, langInfo, padCells, scopeFor, shownExtras, shownText, showParts, SHOW_PARTS, toggleShow } from './core'
 import { usageLines } from './providers'
 import type { CardPlace, Part, Segment, Token } from './core'
 
@@ -32,6 +32,7 @@ export type Els = {
 }
 
 export const LEARN_COLOR = 'suggestion'
+const CARD_BACKGROUND = 'inverseText'
 const BULLET = '⏺'
 
 function drawPart({ Text, Link }: Els, p: Part) {
@@ -47,13 +48,23 @@ function drawPart({ Text, Link }: Els, p: Part) {
   return p.text
 }
 
-function drawWord(els: Els, w: OsmosisWord, scope: string, s: OsmosisSettings, key: string, onPress: () => void) {
-  const { Button, Text } = els
+function drawWord(els: Els, w: OsmosisWord, scope: string, s: OsmosisSettings, key: string, onPress: () => void, isPinned = false) {
+  const { Box, Button, Text } = els
   const shown = shownText(w, s.show)
+  const extras = shownExtras(w, s.show)
+  // A graphical surface draws a button as plain text, ignoring colors inside it, but it can dim
+  // one: there the word and its reading are two buttons that hover and press as one.
+  if (isPinned)
+    return (
+      <Box flexDirection="row" flexShrink={0}>
+        <Button key={key} label={shown} plain hover={{ scope, inverse: true }} onPress={onPress} />
+        {extras.length ? <Button key={`${key}-more`} label={extras.join(' ')} plain dimColor hover={{ scope, inverse: true }} onPress={onPress} /> : null}
+      </Box>
+    )
   return (
     <Button key={key} label={`${shown} (${w.en})`} plain hover={{ scope, inverse: true }} onPress={onPress}>
       <Text color={LEARN_COLOR} underline>{shown}</Text>
-      {s.show === 'both' && w.romanization ? <Text dimColor> {w.romanization}</Text> : null}
+      {extras.length ? <Text dimColor> {extras.join(' ')}</Text> : null}
     </Button>
   )
 }
@@ -94,6 +105,44 @@ function drawCard({ Box, Text, Button }: Els, w: OsmosisWord, scope: string, p: 
   )
 }
 
+// A graphical surface lays text out in its own font, so cell offsets along a line miss the
+// word: a card above is pinned to the word itself. One below is drawn last in the message,
+// at the word's row, so the words after it cannot paint over it. Both have a solid background.
+function drawPinnedCard({ Box, Text, Button }: Els, w: OsmosisWord, scope: string, p: Extract<CardPlace, { kind: 'above' | 'below' }>, say: () => void) {
+  const lines = cardLines(w)
+  const place = p.kind === 'above' ? { bottom: 1, left: p.shift ?? 0 } : { top: p.top, left: p.left }
+  const speaker = <Button key={`say-${scope}`} label={SPEAKER} plain onPress={say}>{SPEAKER}</Button>
+  const head = (
+    <Text>
+      <Text bold color={LEARN_COLOR}>{w.target}</Text>
+      {w.romanization ? ` ${w.romanization}` : ''}
+    </Text>
+  )
+  return (
+    <Box
+      position="absolute"
+      {...place}
+      display="none"
+      hover={{ scope, display: 'flex' }}
+      borderStyle="round"
+      borderDimColor
+      backgroundColor={CARD_BACKGROUND}
+      flexDirection="column"
+      paddingX={1}
+      width={p.inner + 4}
+      flexShrink={0}
+    >
+      <Box flexDirection="row" gap={1}>
+        {head}
+        {speaker}
+      </Box>
+      {lines.slice(1).map((line, i) => (
+        <Text dimColor={i === lines.length - 2} wrap="truncate-end">{line}</Text>
+      ))}
+    </Box>
+  )
+}
+
 function drawToken(
   els: Els,
   t: Token,
@@ -101,14 +150,18 @@ function drawToken(
   msgKey: string,
   s: OsmosisSettings,
   pick: (i: number) => void,
+  pinned: Map<number, CardPlace> | null,
+  say: (i: number) => void,
 ) {
   const { Box, Text } = els
   if (t.kind === 'swap') {
     const w = words[t.index]!
+    const plan = pinned?.get(t.index)
     return (
       <Box key={`k-${t.index}`} flexDirection="row" flexShrink={0}>
-        {drawWord(els, w, scopeFor(msgKey, t.index), s, `w-${t.index}`, () => pick(t.index))}
+        {drawWord(els, w, scopeFor(msgKey, t.index), s, `w-${t.index}`, () => pick(t.index), pinned !== null)}
         {t.trailing ? <Text>{t.trailing}</Text> : null}
+        {plan?.kind === 'above' ? drawPinnedCard(els, w, scopeFor(msgKey, t.index), plan, () => say(t.index)) : null}
       </Box>
     )
   }
@@ -126,10 +179,19 @@ export function drawMessage(
   pick: (i: number) => void,
   cards: Map<number, CardPlace> | null,
   say: (i: number) => void = () => {},
+  isPinned = false,
 ): RenderElement {
   const { Box, Text, Markdown } = els
+  const pinned = isPinned ? cards : null
   return (
-    <Box flexDirection="row" marginTop={1}>
+    // On a graphical surface the row above the reply is padding, not margin: a margin row belongs to the
+    // app's message wrapper, where a pointer moving off a word never ends its hover.
+    <Box
+      flexDirection="row"
+      alignItems="flex-start"
+      {...(isPinned ? { paddingTop: 1 } : { marginTop: 1 })}
+      {...(pinned ? { paddingBottom: Math.max(0, ...[...pinned.values()].map(p => (p.kind === 'bar' ? 0 : (p.spare ?? 0)))) } : {})}
+    >
       <Box minWidth={2} flexShrink={0}>
         <Text color="text">{isFirst ? BULLET : ' '}</Text>
       </Box>
@@ -140,14 +202,14 @@ export function drawMessage(
           ) : (
             <Box flexDirection="column">
               {seg.lines.map(line => (
-                <Box flexDirection="row" paddingLeft={line.indent}>
+                <Box flexDirection="row" alignItems="flex-start" paddingLeft={line.indent}>
                   {line.marker !== null ? (
                     <Box flexShrink={0}>
                       <Text>{`${line.marker} `}</Text>
                     </Box>
                   ) : null}
                   <Box flexDirection="row" flexWrap="wrap" flexGrow={1} flexShrink={1}>
-                    {line.tokens.map(t => drawToken(els, t, words, msgKey, s, pick))}
+                    {line.tokens.map(t => drawToken(els, t, words, msgKey, s, pick, pinned, say))}
                   </Box>
                 </Box>
               ))}
@@ -157,7 +219,11 @@ export function drawMessage(
       </Box>
       {cards
         ? [...cards.entries()].map(([index, plan]) =>
-            plan.kind === 'bar' ? null : drawCard(els, words[index]!, scopeFor(msgKey, index), plan, () => say(index)),
+            plan.kind === 'bar' || (isPinned && plan.kind === 'above')
+              ? null
+              : isPinned
+                ? drawPinnedCard(els, words[index]!, scopeFor(msgKey, index), plan, () => say(index))
+                : drawCard(els, words[index]!, scopeFor(msgKey, index), plan, () => say(index)),
           )
         : null}
     </Box>
@@ -227,6 +293,31 @@ export type PaneActions = {
   exportAnki: () => void
 }
 
+// Checkboxes, not one choice: a word can show any mix of its parts.
+function showRow({ Box, Button, Text }: Els, s: OsmosisSettings, act: PaneActions, isOpen: boolean) {
+  const parts = showParts(s.show)
+  return (
+    <Box flexDirection="row">
+      <Box width={14} flexShrink={0}>
+        <Button key="help-show" plain dimColor={!isOpen} onPress={() => act.toggleHelp('show')}>
+          <Text dimColor>{isOpen ? '\u25be ' : '\u25b8 '}</Text>
+          Show
+        </Button>
+      </Box>
+      <Box flexDirection="row" flexWrap="wrap" columnGap={1} flexGrow={1} flexShrink={1}>
+        {SHOW_PARTS.map(([part, label]) => (
+          <Button
+            key={`show-${part}`}
+            label={`${parts.has(part) ? '\u2611' : '\u2610'} ${label}`}
+            variant={parts.has(part) ? 'primary' : 'secondary'}
+            onPress={() => act.setSettings({ show: toggleShow(s.show, part) })}
+          />
+        ))}
+      </Box>
+    </Box>
+  )
+}
+
 function choiceRow<V extends string>(
   { Box, Text, Button }: Els,
   title: string,
@@ -271,7 +362,7 @@ export function drawSettings(els: Els, s: OsmosisSettings, act: PaneActions, cop
         const toggle = row.key === 'isOn' ? 'o' : row.key === 'isBandOn' ? 'v' : undefined
         return (
           <Box flexDirection="column">
-            {choiceRow(
+            {row.key === 'show' ? showRow(els, s, act, help === row.keyName) : choiceRow(
               els,
               row.label,
               row.keyName,
