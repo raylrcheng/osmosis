@@ -1,6 +1,7 @@
 export type OsmosisLevel = 'beginner' | 'intermediate' | 'advanced'
 export type OsmosisDensity = 'low' | 'normal' | 'high'
-export type OsmosisShow = 'hanzi' | 'both' | 'pinyin'
+// Any mix of hanzi, pinyin and english joined by '+' (hanzi or pinyin always one of them); 'both' is hanzi+pinyin.
+export type OsmosisShow = string
 export type OsmosisCard = 'word' | 'bar' | 'both'
 export type OsmosisCap = 'off' | '100k' | '300k' | '1m'
 export type OsmosisProvider = 'haiku' | 'local'
@@ -12,6 +13,7 @@ export type OsmosisSettings = {
   show: OsmosisShow
   isBandOn: boolean
   isStatusOn: boolean
+  isFocusOn: boolean
   copy: 'english' | 'shown'
   debug: boolean
   coverage: 'natural' | 'maximum'
