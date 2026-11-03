@@ -632,14 +632,14 @@ export function planMessage(text: string, words: readonly OsmosisWord[]): Segmen
 
 // ---------- floating card placement ----------
 
-export type SwapSpot = { row: number; x: number; avail: number; lineLeft: number }
+export type SwapSpot = { row: number; x: number; avail: number; lineLeft: number; lineRow?: number }
 export type SwapLayout = { spots: Map<number, SwapSpot>; rows: number }
 
-function tokenWidth(t: Token, words: readonly OsmosisWord[], show: OsmosisSettings['show']): number {
+function tokenWidth(t: Token, words: readonly OsmosisWord[], show: OsmosisSettings['show'], buttonCells: number): number {
   if (t.kind === 'parts') return cellWidth(t.parts.map(p => p.text).join(''))
   const w = words[t.index]!
   const extra = show === 'both' && w.romanization ? 1 + cellWidth(w.romanization) : 0
-  return cellWidth(shownText(w, show)) + extra + cellWidth(t.trailing)
+  return cellWidth(shownText(w, show)) + extra + cellWidth(t.trailing) + buttonCells
 }
 
 // Markdown draws no code fences or emphasis marks; a table row gets a rule under it.
@@ -665,6 +665,7 @@ export function placeSwaps(
   words: readonly OsmosisWord[],
   show: OsmosisSettings['show'],
   columns: number,
+  buttonCells = 0,
 ): SwapLayout {
   const spots = new Map<number, SwapSpot>()
   const body = Math.max(10, columns - 2)
@@ -679,13 +680,15 @@ export function placeSwaps(
       const lineLeft = line.indent + (line.marker === null ? 0 : line.marker.length + 1)
       const avail = Math.max(8, body - lineLeft)
       let x = 0
+      let lineRow = 0
       for (const t of line.tokens) {
-        const w = tokenWidth(t, words, show)
+        const w = tokenWidth(t, words, show, buttonCells)
         if (x > 0 && x + w > avail) {
           row++
+          lineRow++
           x = 0
         }
-        if (t.kind === 'swap') spots.set(t.index, { row, x, avail, lineLeft })
+        if (t.kind === 'swap') spots.set(t.index, { row, x, avail, lineLeft, lineRow })
         x += w
       }
       row++
@@ -769,6 +772,10 @@ export function placeCard(
 // A graphical surface sets text in a proportional font: a character averages about 0.8 of
 // the cell its boxes are measured in.
 const TEXT_CELLS = 0.8
+// It also pads each word button, about this many text cells across both sides.
+const BUTTON_CELLS = 2
+// A word the line still holds at this much of its estimated width is taken to be on that row.
+const SURE_WIDTH = 0.9
 
 // A graphical surface clips a floating card to its message, so the card goes above the word when
 // the message has room for it there, else below; a message too short for it keeps spare rows under
@@ -793,10 +800,19 @@ export function planCards(
   onScreen: OnScreenRows,
   isPinned = false,
 ): Map<number, CardPlace> {
-  // A graphical surface fits more text on a line than its cell count says.
-  const layout = placeSwaps(segs, words, show, isPinned ? Math.floor(columns / TEXT_CELLS) : columns)
+  // A graphical surface fits more text on a line than its cell count says, less its button padding.
+  const text = Math.floor(columns / TEXT_CELLS)
+  const layout = isPinned ? placeSwaps(segs, words, show, text, BUTTON_CELLS) : placeSwaps(segs, words, show, columns)
+  // The estimate is rough. A word that a slightly narrower line would wrap is placed as if it starts
+  // the next row: a card placed for the end of the row above would cover that row's text, and one
+  // moved left to fit would slide out of the message, leaving only its blank end over the reply.
+  const tight = isPinned ? placeSwaps(segs, words, show, Math.floor(text * SURE_WIDTH), BUTTON_CELLS) : null
   const plans = new Map<number, CardPlace>()
-  for (const [index, spot] of layout.spots) plans.set(index, placeCard(spot, cardLines(words[index]!), layout.rows, onScreen, columns, isPinned))
+  for (const [index, spot] of layout.spots) {
+    const t = tight?.spots.get(index)
+    const at = t && t.lineRow !== spot.lineRow ? { ...spot, row: spot.row + (t.lineRow ?? 0) - (spot.lineRow ?? 0), x: t.x } : spot
+    plans.set(index, placeCard(at, cardLines(words[index]!), layout.rows, onScreen, columns, isPinned))
+  }
   return plans
 }
 

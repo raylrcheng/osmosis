@@ -905,7 +905,7 @@ function drawReply(
       await openPane($)
     })()
   const floating = cards ? [...cards.values()].filter(p => p.kind !== 'bar').length : 0
-  note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0}`)
+  note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0} columns=${view.columns}`)
   const say = (index: number) => {
     note(`say key=${key} index=${index}`)
     const w = words[index]
