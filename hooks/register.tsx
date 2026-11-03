@@ -1142,7 +1142,7 @@ export const register: Register = on => {
     const example: ExampleView | null = w ? await exampleFor($, w, isCapReached(usage, today, s)) : null
     const exampleText = example?.status === 'ok' ? example.target : ''
     const copyNote = clipTool === null ? 'Unavailable: no pbpaste, wl-paste or xclip found.' : ''
-    return drawHome(els, s, words, index, progress, actions($, key, words, exampleText), example, usage, today, copyNote, await read($, helpAtom))
+    return drawHome(els, s, words, index, progress, actions($, key, words, exampleText), example, usage, today, copyNote, await read($, helpAtom), e.surface !== 'terminal')
   })
 
   on('command.run', { command: 'osmosis' }, async ($, e) => {

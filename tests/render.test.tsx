@@ -908,3 +908,20 @@ test('Show is a row of checkboxes; English adds the meaning after the word; /osm
   await clock.settle()
   expect((await run('show +hanzi')).text).toBe('Osmosis show: Hanzi + Pinyin + English. What each swapped word shows: any mix of characters, pinyin and English.')
 })
+
+test('on desktop the settings choices are plain buttons, the current one bright; the terminal keeps its buttons', async ($, on) => {
+  const { clock } = world(on, REPLY)
+  await $.session.start({ cwd: '/tmp', surface: 'desktop', isInteractive: true })
+  const props = { title: 'Osmosis 中文', isFocused: false, bodyColumns: 60, placement: 'dock', scroll: SCROLL, view: {} }
+  const desk = await $.ui.mount({ plugin: 'osmosis', surface: 'desktop', component: 'Pane', requestId: 'osmosis', props })
+  const term = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', component: 'Pane', requestId: 'osmosis', props })
+  await settleAll(clock)
+  const button = (tree: unknown, key: string) => walk(tree, n => n.props?.key === key)[0]?.props
+  const deskTree = await desk.drawn()
+  expect(button(deskTree, 'level-beginner')).toMatchObject({ plain: true, dimColor: false })
+  expect(button(deskTree, 'level-advanced')).toMatchObject({ plain: true, dimColor: true })
+  expect(button(deskTree, 'show-english')?.plain).toBe(true)
+  const termTree = await term.drawn()
+  expect(button(termTree, 'level-beginner')).toMatchObject({ variant: 'primary' })
+  expect(button(termTree, 'level-beginner')?.plain).toBeUndefined()
+})
