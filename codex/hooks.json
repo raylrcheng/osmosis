@@ -1,0 +1,17 @@
+{
+  "description": "Osmosis: a Mandarin vocab card under each Codex reply.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${PLUGIN_ROOT}/codex/stop.mjs\"",
+            "timeout": 45,
+            "statusMessage": "Osmosis: picking words"
+          }
+        ]
+      }
+    ]
+  }
+}
