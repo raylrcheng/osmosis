@@ -1,0 +1,24 @@
+{
+  "name": "osmosis",
+  "version": "0.2.4",
+  "description": "Learn Mandarin by osmosis: a short vocab card under each Codex reply, with words from the reply checked against CC-CEDICT.",
+  "author": {
+    "name": "raylrcheng"
+  },
+  "homepage": "https://github.com/raylrcheng/osmosis",
+  "repository": "https://github.com/raylrcheng/osmosis",
+  "license": "MIT",
+  "keywords": ["mandarin", "chinese", "vocabulary", "language learning"],
+  "skills": "./codex/skills/",
+  "hooks": "./codex/hooks.json",
+  "interface": {
+    "displayName": "Osmosis 中文",
+    "shortDescription": "A Mandarin vocab card under each reply",
+    "longDescription": "After each reply, Osmosis picks a few words from it at your HSK level and shows them under the reply with pinyin, meaning, HSK level and a character breakdown. The card is for you only; Codex does not see it. Type $osmosis to change the level, density or model.",
+    "developerName": "raylrcheng",
+    "category": "Education",
+    "capabilities": ["Read"],
+    "websiteURL": "https://github.com/raylrcheng/osmosis",
+    "defaultPrompt": ["$osmosis level intermediate"]
+  }
+}
