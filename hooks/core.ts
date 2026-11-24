@@ -632,14 +632,14 @@ export function planMessage(text: string, words: readonly OsmosisWord[]): Segmen
 
 // ---------- floating card placement ----------
 
-export type SwapSpot = { row: number; x: number; avail: number; lineLeft: number }
+export type SwapSpot = { row: number; x: number; avail: number; lineLeft: number; lineRow?: number }
 export type SwapLayout = { spots: Map<number, SwapSpot>; rows: number }
 
-function tokenWidth(t: Token, words: readonly OsmosisWord[], show: OsmosisSettings['show']): number {
+function tokenWidth(t: Token, words: readonly OsmosisWord[], show: OsmosisSettings['show'], buttonCells: number): number {
   if (t.kind === 'parts') return cellWidth(t.parts.map(p => p.text).join(''))
   const w = words[t.index]!
   const extra = show === 'both' && w.romanization ? 1 + cellWidth(w.romanization) : 0
-  return cellWidth(shownText(w, show)) + extra + cellWidth(t.trailing)
+  return cellWidth(shownText(w, show)) + extra + cellWidth(t.trailing) + buttonCells
 }
 
 // Markdown draws no code fences or emphasis marks; a table row gets a rule under it.
@@ -665,6 +665,7 @@ export function placeSwaps(
   words: readonly OsmosisWord[],
   show: OsmosisSettings['show'],
   columns: number,
+  buttonCells = 0,
 ): SwapLayout {
   const spots = new Map<number, SwapSpot>()
   const body = Math.max(10, columns - 2)
@@ -679,13 +680,15 @@ export function placeSwaps(
       const lineLeft = line.indent + (line.marker === null ? 0 : line.marker.length + 1)
       const avail = Math.max(8, body - lineLeft)
       let x = 0
+      let lineRow = 0
       for (const t of line.tokens) {
-        const w = tokenWidth(t, words, show)
+        const w = tokenWidth(t, words, show, buttonCells)
         if (x > 0 && x + w > avail) {
           row++
+          lineRow++
           x = 0
         }
-        if (t.kind === 'swap') spots.set(t.index, { row, x, avail, lineLeft })
+        if (t.kind === 'swap') spots.set(t.index, { row, x, avail, lineLeft, lineRow })
         x += w
       }
       row++
@@ -731,7 +734,7 @@ export function cardRows(lines: readonly string[], inner: number): CardRow[] {
 }
 
 export type CardPlace =
-  | { kind: 'above' | 'below'; top: number; left: number; inner: number; height: number }
+  | { kind: 'above' | 'below'; top: number; left: number; inner: number; height: number; edge: 'left' | 'right'; shift?: number; spare?: number }
   | { kind: 'bar' }
 
 export type OnScreenRows = { first: number; last: number } | null | undefined
@@ -745,21 +748,48 @@ export function placeCard(
   totalRows: number,
   onScreen: OnScreenRows,
   columns: number,
+  isPinned = false,
 ): CardPlace {
   const widest = Math.max(...lines.map((l, i) => cellWidth(l) + (i === 0 ? SPEAKER_CELLS : 0)))
   const inner = Math.max(4, Math.min(widest, CARD_MAX - 4, columns - GUTTER - 4))
   const width = inner + 4
   const height = cardRows(lines, inner).length + 2
   const left = Math.max(0, Math.min(GUTTER + spot.lineLeft + spot.x, columns - width))
+  // A graphical surface pins the card to the word, so it only needs the side with room.
+  const edge = GUTTER + spot.lineLeft + spot.x + width > columns ? 'right' : 'left'
   const site = (row: number) => row + 1
   const aboveTop = spot.row - height
-  if (aboveTop >= 0 && (!onScreen || site(aboveTop) >= onScreen.first)) return { kind: 'above', top: aboveTop, left, inner, height }
+  if (isPinned) return placePinned(spot, totalRows, columns, inner, height)
+  if (aboveTop >= 0 && (!onScreen || site(aboveTop) >= onScreen.first)) return { kind: 'above', top: aboveTop, left, inner, height, edge }
   const belowTop = spot.row + 1
   const belowEnd = belowTop + height - 1
-  if (belowEnd < totalRows && (!onScreen || site(belowEnd) <= onScreen.last)) return { kind: 'below', top: belowTop, left, inner, height }
+  if (belowEnd < totalRows && (!onScreen || site(belowEnd) <= onScreen.last)) return { kind: 'below', top: belowTop, left, inner, height, edge }
   // Fullscreen clips to the viewport, so a short message's card may cover the reply above.
-  if (onScreen && onScreen.first === 0) return { kind: 'above', top: aboveTop, left, inner, height }
+  if (onScreen && onScreen.first === 0) return { kind: 'above', top: aboveTop, left, inner, height, edge }
   return { kind: 'bar' }
+}
+
+// A graphical surface sets text in a proportional font: a character averages about 0.8 of
+// the cell its boxes are measured in.
+const TEXT_CELLS = 0.8
+// It also pads each word button, about this many text cells across both sides.
+const BUTTON_CELLS = 2
+// A word the line still holds at this much of its estimated width is taken to be on that row.
+const SURE_WIDTH = 0.9
+
+// A graphical surface clips a floating card to its message, so the card goes above the word when
+// the message has room for it there, else below; a message too short for it keeps spare rows under
+// itself, so every word gets the whole card.
+function placePinned(spot: SwapSpot, totalRows: number, columns: number, inner: number, height: number): CardPlace {
+  const x = Math.round((spot.lineLeft + spot.x) * TEXT_CELLS)
+  const room = Math.floor(columns * TEXT_CELLS)
+  // `left` is from the message's left edge (a card below is drawn there); `shift` is from the
+  // word's left edge (a card above is pinned to the word), moved left only as far as it must.
+  const start = Math.max(0, Math.min(x, room - inner - 4))
+  const at = { edge: 'left' as const, left: GUTTER + start, shift: start - x }
+  if (spot.row >= height) return { kind: 'above', top: spot.row - height, inner, height, ...at }
+  const below = totalRows - spot.row - 1
+  return { kind: 'below', top: spot.row + 1, inner, height, ...at, ...(below < height ? { spare: height - below } : {}) }
 }
 
 export function planCards(
@@ -768,10 +798,21 @@ export function planCards(
   show: OsmosisSettings['show'],
   columns: number,
   onScreen: OnScreenRows,
+  isPinned = false,
 ): Map<number, CardPlace> {
-  const layout = placeSwaps(segs, words, show, columns)
+  // A graphical surface fits more text on a line than its cell count says, less its button padding.
+  const text = Math.floor(columns / TEXT_CELLS)
+  const layout = isPinned ? placeSwaps(segs, words, show, text, BUTTON_CELLS) : placeSwaps(segs, words, show, columns)
+  // The estimate is rough. A word that a slightly narrower line would wrap is placed as if it starts
+  // the next row: a card placed for the end of the row above would cover that row's text, and one
+  // moved left to fit would slide out of the message, leaving only its blank end over the reply.
+  const tight = isPinned ? placeSwaps(segs, words, show, Math.floor(text * SURE_WIDTH), BUTTON_CELLS) : null
   const plans = new Map<number, CardPlace>()
-  for (const [index, spot] of layout.spots) plans.set(index, placeCard(spot, cardLines(words[index]!), layout.rows, onScreen, columns))
+  for (const [index, spot] of layout.spots) {
+    const t = tight?.spots.get(index)
+    const at = t && t.lineRow !== spot.lineRow ? { ...spot, row: spot.row + (t.lineRow ?? 0) - (spot.lineRow ?? 0), x: t.x } : spot
+    plans.set(index, placeCard(at, cardLines(words[index]!), layout.rows, onScreen, columns, isPinned))
+  }
   return plans
 }
 
