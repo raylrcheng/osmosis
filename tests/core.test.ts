@@ -359,6 +359,10 @@ describe('copy as English', () => {
     expect(revertCopy('the 电脑 diànnǎo and read', blocks, 'both')).toBe('the computer and read')
     expect(revertCopy('opened the diànnǎo and', blocks, 'pinyin')).toBe('opened the computer and')
   })
+  test('a mix with English maps back, the English in brackets included', () => {
+    expect(revertCopy('the 电脑 diànnǎo (computer) and read', blocks, 'hanzi+pinyin+english')).toBe('the computer and read')
+    expect(revertCopy('the 电脑 (computer) and', blocks, 'hanzi+english')).toBe('the computer and')
+  })
   test('unrelated Chinese and non-matching text are left alone', () => {
     expect(revertCopy('我的电脑很快', blocks, 'hanzi')).toBe(null)
     expect(revertCopy('hello world', blocks, 'hanzi')).toBe(null)
@@ -590,5 +594,30 @@ describe('anki export', () => {
     expect(audioName('')).toBe('')
     const words = [{ ...saved('表格', 'biǎogé', 'table'), exampleTarget: '表格很长。' }, saved('表格', 'biǎogé', 'table')]
     expect(ttsClips(words)).toEqual([{ text: '表格', name: audioName('表格') }, { text: '表格很长。', name: audioName('表格很长。') }])
+  })
+})
+
+import { showLabel, showParts, shownFull, showValue, toggleShow } from '../hooks/core'
+
+describe('show: any mix of hanzi, pinyin and English', () => {
+  const w = { en: 'computer', occurrence: 1, target: '电脑', romanization: 'diànnǎo', pos: 'noun', gloss: 'computer', literal: '', exampleTarget: '', exampleRomanization: '', exampleEn: '', level: 1, start: 0, end: 8 }
+  test('old values keep their meaning, and hanzi or pinyin is always on', () => {
+    expect([...showParts('both')]).toEqual(['hanzi', 'pinyin'])
+    expect([...showParts('pinyin')]).toEqual(['pinyin'])
+    expect([...showParts('english')]).toEqual(['english', 'hanzi'])
+    expect(showValue(showParts('english+pinyin'))).toBe('pinyin+english')
+  })
+  test('a toggle turns one part on or off but never leaves English alone', () => {
+    expect(toggleShow('hanzi', 'english')).toBe('hanzi+english')
+    expect(toggleShow('hanzi+english', 'english')).toBe('hanzi')
+    expect(toggleShow('hanzi+english', 'hanzi')).toBe('hanzi+english')
+    expect(toggleShow('both', 'hanzi')).toBe('pinyin')
+  })
+  test('the word shows its parts in order, the English in brackets', () => {
+    expect(shownFull(w, 'hanzi')).toBe('电脑')
+    expect(shownFull(w, 'both')).toBe('电脑 diànnǎo')
+    expect(shownFull(w, 'pinyin+english')).toBe('diànnǎo (computer)')
+    expect(shownFull(w, 'hanzi+pinyin+english')).toBe('电脑 diànnǎo (computer)')
+    expect(showLabel('hanzi+pinyin+english')).toBe('Hanzi + Pinyin + English')
   })
 })
