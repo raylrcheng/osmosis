@@ -679,33 +679,67 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 
 // A surface that ignores the pane's focus request (the desktop app) still lets the pane's keys
 // work: after a word click, one of them typed into an empty prompt is taken as the pane's key.
+const PANE_KEY_MS = 4000
 let areKeysArmed = false
+let armTimer: Timer | null = null
+let isTakingKey = false
 let wasPaneFocused = false
 let isPaneUp = false
+
+function disarmKeys() {
+  areKeysArmed = false
+  armTimer?.cancel()
+  armTimer = null
+}
+
+function armKeys($: $T) {
+  disarmKeys()
+  areKeysArmed = true
+  armTimer = $.clock.after(PANE_KEY_MS, () => {
+    areKeysArmed = false
+    armTimer = null
+  })
+}
+
+async function clearLoneKey($: $T, k: string) {
+  const cur = await $.prompt.read().catch(() => ({ text: '' }))
+  if (cur.text === k) await $.prompt.fill({ text: '' }).catch(() => undefined)
+}
 
 // The desktop app gives the first key after a word click to the prompt without an edit for it, and
 // moves the pane's focus back to the prompt: read the box then, and take one pane key out of it.
 async function catchPaneKey($: $T) {
-  // Read at once so the key barely shows; again shortly after, in case it has not landed yet.
-  let k: string | null = null
-  for (const wait of [0, 20, 40]) {
-    if (wait) await $.clock.sleep(wait)
-    const box = await $.prompt.read().catch(() => ({ text: '' }))
-    k = promptPaneKey(box.text, '')
-    if (k || box.text !== '') break
+  if (isTakingKey) return
+  isTakingKey = true
+  try {
+    // Read at once so the key barely shows; again shortly after, in case it has not landed yet.
+    let k: string | null = null
+    for (const wait of [0, 20, 40]) {
+      if (wait) await $.clock.sleep(wait)
+      const box = await $.prompt.read().catch(() => ({ text: '' }))
+      k = promptPaneKey(box.text, '')
+      if (k || box.text !== '') break
+    }
+    if (!k) return disarmKeys()
+    if (k === 'x') disarmKeys()
+    else armKeys($)
+    await clearLoneKey($, k)
+    await paneKey($, k)
+  } finally {
+    isTakingKey = false
   }
-  if (!k) return
-  areKeysArmed = k !== 'x'
-  await $.prompt.fill({ text: '' }).catch(() => undefined)
-  await paneKey($, k)
 }
 
 async function paneKey($: $T, k: string) {
+  if ((await read($, viewAtom)) !== 'home') return disarmKeys()
   const selected = await read($, selectedAtom)
   const key = selected?.key ?? (await read($, latestAtom))
   const words = await wordsOf($, key)
   const w = selected && selected.key === key ? words[selected.index] : undefined
-  const example = w ? await exampleFor($, w, false) : null
+  const s = await read($, settingsAtom)
+  const usage = await read($, usageAtom)
+  const today = dayOf(await $.clock.now())
+  const example = w ? await exampleFor($, w, isCapReached(usage, today, s)) : null
   const act = actions($, key, words, example?.status === 'ok' ? example.target : '')
   note(`pane key=${k} from prompt`)
   if (k === 'x') return act.close()
@@ -718,15 +752,15 @@ async function paneKey($: $T, k: string) {
 
 // A word click opens the pane before its first await: an open later than that no longer counts as
 // the person's press, and below 144 columns the engine then leaves the pane undrawn.
-function openPane($: $T, isFromWord = false, settings?: OsmosisSettings): Promise<unknown> {
-  if (!settings) return read($, settingsAtom).then(s => openPane($, isFromWord, s))
+function openPane($: $T, isFromWord = false, settings?: OsmosisSettings, isPinned = false): Promise<unknown> {
+  if (!settings) return read($, settingsAtom).then(s => openPane($, isFromWord, s, isPinned))
   const isFocus = isFromWord && settings.isFocusOn
   // Opening a pane that is already up only retitles it, so the focus request would be dropped.
   if (isFocus && isPaneUp && !wasPaneFocused) void $.ui.close({ id: PANE }).catch(() => undefined)
   const opened = $.ui.open({ id: PANE, title: `Osmosis ${langInfo(settings.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
-  // Only an empty prompt arms the pane keys, so a draft is never taken for one.
-  areKeysArmed = false
-  if (isFocus) void $.prompt.read().then(box => (areKeysArmed = box.text === ''), () => undefined)
+  // Only an empty prompt on a graphical surface arms the pane keys, so a draft or terminal prompt is never hijacked.
+  disarmKeys()
+  if (isFocus && isPinned) void $.prompt.read().then(box => { if (box.text === '') armKeys($) }, () => undefined)
   return opened
 }
 
@@ -956,7 +990,7 @@ function drawReply(
   const pick = (index: number) => {
     note(`click key=${key} index=${index}`)
     flushSoon($)
-    const opened = openPane($, true, s)
+    const opened = openPane($, true, s, view.isPinned)
     void (async () => {
       await update($, selectedAtom, () => ({ key, index }))
       await update($, viewAtom, () => 'home' as const)
@@ -976,6 +1010,9 @@ function drawReply(
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    isPaneUp = false
+    wasPaneFocused = false
+    disarmKeys()
     try {
       isChild = Boolean(await $.env.get('CLAUDE_CODE_CHILD_SESSION'))
     } catch {
@@ -1087,23 +1124,29 @@ export const register: Register = on => {
 
   on('prompt.edit', async ($, e, next) => {
     // An edit that changes nothing (a caret move as the box takes focus back) keeps the keys armed.
-    if (!areKeysArmed || (e.text === '' && e.inputText === '')) return next(e)
+    if (isChild || isTakingKey || !areKeysArmed || (e.text === '' && e.inputText === '')) return next(e)
     const k = promptPaneKey(e.text, e.inputText)
     if (!k) {
-      areKeysArmed = false
+      disarmKeys()
       return next(e)
     }
-    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
-    if (!up?.isPlaced) {
-      areKeysArmed = false
-      return next(e)
+    isTakingKey = true
+    try {
+      const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+      if (!up?.isPlaced) {
+        disarmKeys()
+        return next(e)
+      }
+      if (k === 'x') disarmKeys()
+      else armKeys($)
+      // Where the key is already in the box (the desktop app), take it back out before awaiting.
+      if (e.inputText === '') await clearLoneKey($, k)
+      await paneKey($, k)
+      return { text: '', cursor: 0 }
+    } finally {
+      isTakingKey = false
     }
-    if (k === 'x') areKeysArmed = false
-    await paneKey($, k)
-    // Where the key is already in the box (the desktop app), take it back out.
-    if (e.inputText === '') void $.prompt.fill({ text: '' }).catch(() => undefined)
-    return { text: '', cursor: 0 }
-  })
+  }).catch(($, e, next) => (next.called ? undefined : next(e)))
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (isChild) return next(e)
@@ -1127,8 +1170,9 @@ export const register: Register = on => {
   on('ui.close', { id: PANE }, ($, e, next) => {
     isPaneUp = false
     wasPaneFocused = false
+    disarmKeys()
     return next(e)
-  })
+  }).catch(($, e, next) => next(e))
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const els = (({ Box, Text, Button, Markdown, Link }) => ({ Box, Text, Button, Markdown, Link }))($.ui.resolve(e))

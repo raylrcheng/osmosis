@@ -1,7 +1,7 @@
 // Osmosis for Codex: picks a few words from a finished reply and formats a vocab card.
 // Reuses the Claude version's prompt, parsing and CC-CEDICT check from hooks/*.ts (Node strips the types).
 import { spawn, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { registerHooks } from 'node:module'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -132,7 +132,14 @@ export function readJson(path, fallback) {
 
 export function writeJson(path, value) {
   mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`)
+  renameSync(tmp, path)
+}
+
+function readUsage(path) {
+  const raw = readJson(path, providers.EMPTY_USAGE)
+  return raw && typeof raw === 'object' && raw.days && typeof raw.days === 'object' ? raw : providers.EMPTY_USAGE
 }
 
 // ---------- the recursion guard ----------
@@ -153,7 +160,7 @@ export function cardSource(reply, s) {
   const chunks = core.chunkBlock(reply, 4, 6)
   if (!chunks.length) return null
   const from = chunks[0].start
-  let end = chunks[0].end
+  let end = Math.min(chunks[0].end, from + MAX_PROMPT_CHARS)
   for (const c of chunks.slice(1)) {
     if (c.end - from > MAX_PROMPT_CHARS) break
     end = c.end
@@ -178,9 +185,9 @@ export function pickWords(modelReply, src, s, dict) {
     maxPhrases: core.phraseCap(s.level, 'natural'),
     coverage: 'natural',
   })
-  if (!parsed.ok) return null
+  if (!parsed.ok || !dict.rows.size) return parsed.ok ? [] : null
   const checked = parsed.words.map(w => verifyWord(w, dict))
-  return dict.rows.size ? checked.filter(w => w.verified) : checked
+  return checked.filter(w => w.verified)
 }
 
 // ---------- the card ----------
@@ -276,6 +283,7 @@ function run(bin, args, input, opts) {
       done = true
     }
     const child = spawn(bin, args, { ...opts, stdio: ['pipe', 'pipe', 'ignore'], timeout: opts.timeout, killSignal: 'SIGKILL' })
+    child.stdout.setEncoding('utf8')
     child.stdout.on('data', d => (stdout += d))
     child.on('error', () => finish({ code: -1, stdout }))
     child.on('close', code => finish({ code, stdout }))
@@ -341,11 +349,11 @@ export function today(now = Date.now()) {
 
 export function isCapped(usage, day, s) {
   const limit = providers.capTokens(s.cap)
-  return s.model !== 'local' && limit !== null && providers.totalTokens(usage.days?.[day]?.codex) >= limit
+  return s.model !== 'local' && limit !== null && providers.totalTokens(usage?.days?.[day]?.codex) >= limit
 }
 
 export function usageLine(usage, day) {
-  const t = usage.days?.[day]
+  const t = usage?.days?.[day]
   const part = (name, x) => (x ? `${name}: ${x.calls} call${x.calls === 1 ? '' : 's'} · ${providers.fmtTokens(providers.totalTokens(x))} tokens` : '')
   return [part('Codex model today', t?.codex), part('Local model today', t?.local)].filter(Boolean).join('\n') || 'No model calls today.'
 }
@@ -370,8 +378,7 @@ export async function runStop(input, ctx) {
   const src = cardSource(input?.last_assistant_message, s)
   if (!src) return null
   const day = today()
-  const usage = readJson(usagePath, providers.EMPTY_USAGE)
-  if (isCapped(usage, day, s)) {
+  if (isCapped(readUsage(usagePath), day, s)) {
     note('capped')
     return null
   }
@@ -380,7 +387,8 @@ export async function runStop(input, ctx) {
   const r = await call(prompt, s, ctx)
   if (r.usage) {
     try {
-      writeJson(usagePath, providers.addUsage(usage, day, s.model === 'local' ? 'local' : 'codex', r.usage))
+      const latestUsage = readUsage(usagePath)
+      writeJson(usagePath, providers.addUsage(latestUsage, day, s.model === 'local' ? 'local' : 'codex', r.usage))
     } catch {
       // usage is best effort
     }

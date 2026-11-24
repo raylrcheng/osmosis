@@ -212,3 +212,26 @@ test('stop.mjs prints nothing and exits 0 for the child, bad input and short rep
     assert.equal(r.stdout, '')
   }
 })
+
+test('cardSource bounds a single huge paragraph to MAX_PROMPT_CHARS and pickWords drops unverified words when dict is empty', () => {
+  const huge = 'The computer runs the test suite every night. '.repeat(250)
+  const src = lib.cardSource(huge, lib.DEFAULTS)
+  assert.ok(src && src.text.length <= lib.MAX_PROMPT_CHARS)
+  assert.deepEqual(lib.pickWords(MODEL_REPLY, { text: REPLY, cap: 4 }, lib.DEFAULTS, { rows: new Map(), hsk: new Map() }), [])
+})
+
+test('overlapping runStop calls preserve both usage counts', async () => {
+  const dataDir = tempDir()
+  const model = async () => {
+    await new Promise(r => setTimeout(r, 15))
+    return { ok: true, text: MODEL_REPLY, usage: { input: 1000, output: 20, cacheRead: 0, cacheWrite: 0 } }
+  }
+  const input = { cwd: '/repo', last_assistant_message: REPLY }
+  await Promise.all([
+    lib.runStop(input, { env: {}, dataDir, deadline: Date.now() + 5000, callModel: model, dict: DICT }),
+    lib.runStop(input, { env: {}, dataDir, deadline: Date.now() + 5000, callModel: model, dict: DICT }),
+  ])
+  const usage = JSON.parse(readFileSync(join(dataDir, 'usage.json'), 'utf8'))
+  assert.equal(Object.values(usage.days)[0].codex.calls, 2)
+  assert.equal(Object.values(usage.days)[0].codex.input, 2000)
+})

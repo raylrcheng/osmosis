@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 const HARD_STOP_MS = 40_000
 
 async function readStdin(limit = 4_000_000) {
+  process.stdin.setEncoding('utf8')
   let data = ''
   for await (const chunk of process.stdin) {
     data += chunk

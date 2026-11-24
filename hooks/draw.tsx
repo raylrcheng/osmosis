@@ -110,7 +110,8 @@ function drawCard({ Box, Text, Button }: Els, w: OsmosisWord, scope: string, p: 
 // at the word's row, so the words after it cannot paint over it. Both have a solid background.
 function drawPinnedCard({ Box, Text, Button }: Els, w: OsmosisWord, scope: string, p: Extract<CardPlace, { kind: 'above' | 'below' }>, say: () => void) {
   const lines = cardLines(w)
-  const place = p.kind === 'above' ? { bottom: 1, left: p.shift ?? 0 } : { top: p.top, left: p.left }
+  // Root Box uses paddingTop={1} on graphical surfaces, shifting content rows down by 1.
+  const place = p.kind === 'above' ? { bottom: 1, left: p.shift ?? 0 } : { top: p.top + 1, left: p.left }
   const speaker = <Button key={`say-${scope}`} label={SPEAKER} plain onPress={say}>{SPEAKER}</Button>
   const head = (
     <Text>
@@ -152,6 +153,7 @@ function drawToken(
   pick: (i: number) => void,
   pinned: Map<number, CardPlace> | null,
   say: (i: number) => void,
+  isPinned = false,
 ) {
   const { Box, Text } = els
   if (t.kind === 'swap') {
@@ -159,7 +161,7 @@ function drawToken(
     const plan = pinned?.get(t.index)
     return (
       <Box key={`k-${t.index}`} flexDirection="row" flexShrink={0}>
-        {drawWord(els, w, scopeFor(msgKey, t.index), s, `w-${t.index}`, () => pick(t.index), pinned !== null)}
+        {drawWord(els, w, scopeFor(msgKey, t.index), s, `w-${t.index}`, () => pick(t.index), isPinned)}
         {t.trailing ? <Text>{t.trailing}</Text> : null}
         {plan?.kind === 'above' ? drawPinnedCard(els, w, scopeFor(msgKey, t.index), plan, () => say(t.index)) : null}
       </Box>
@@ -209,7 +211,7 @@ export function drawMessage(
                     </Box>
                   ) : null}
                   <Box flexDirection="row" flexWrap="wrap" flexGrow={1} flexShrink={1}>
-                    {line.tokens.map(t => drawToken(els, t, words, msgKey, s, pick, pinned, say))}
+                    {line.tokens.map(t => drawToken(els, t, words, msgKey, s, pick, pinned, say, isPinned))}
                   </Box>
                 </Box>
               ))}

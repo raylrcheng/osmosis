@@ -634,13 +634,13 @@ test('on desktop, every word gets the whole card: above, else below, with spare 
   expect(JSON.stringify(card)).toContain('click for more')
   const firstTree = (await first.drawn()) as Node
   const below = floating(firstTree)[0]
-  expect(below?.props?.top).toBe(1)
+  expect(below?.props?.top).toBe(2)
   expect(below?.props?.backgroundColor).toBeDefined()
   expect(below?.hover?.scope).toBe(hoverOf(firstTree, 'w-0')?.scope)
   expect(walk(walk(firstTree, n => n.props?.key === 'k-0')[0], n => n.props?.position === 'absolute')).toHaveLength(0)
   const shortTree = (await short.drawn()) as Node
   const full = floating(shortTree)[0]
-  expect(full?.props?.top).toBe(1)
+  expect(full?.props?.top).toBe(2)
   expect(full?.props?.borderStyle).toBe('round')
   expect(JSON.stringify(full)).toContain('click for more')
   expect(shortTree.props?.paddingBottom).toBeGreaterThan(1)
@@ -953,4 +953,24 @@ test('on desktop the settings choices are plain buttons, the current one bright;
   const termTree = await term.drawn()
   expect(button(termTree, 'level-beginner')).toMatchObject({ variant: 'primary' })
   expect(button(termTree, 'level-beginner')?.plain).toBeUndefined()
+})
+
+test('clicking a word on terminal never intercepts prompt typing; desktop bar mode still draws desktop word buttons', async ($, on) => {
+  const { clock } = world(on, REPLY)
+  on('ui.panes', () => ({ value: [{ id: 'osmosis', title: 'Osmosis 中文', isVisible: true, isFocused: false, isPlaced: true }] }))
+  on('prompt.edit', ($, e) => ({ text: e.text + e.inputText, cursor: e.cursor + e.inputText.length }))
+  await $.session.start({ cwd: '/tmp', surface: 'terminal', isInteractive: true })
+  const msg = await $.ui.mount({ plugin: 'osmosis', surface: 'terminal', ...MESSAGE })
+  await clock.advance(2000)
+  await clock.settle()
+  await msg.press({ key: 'w-0' })
+  await clock.settle()
+  const edit = await $.prompt.edit({ text: '', inputText: 'p', cursor: 0, start: 0, end: 0, origin: { kind: 'composer' } })
+  expect(edit?.text).toBe('p')
+  await $.command.run({ command: 'osmosis', args: 'card bar', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  await $.command.run({ command: 'osmosis', args: 'show pinyin', origin: { kind: 'composer' }, presentation: { isFullscreen: true, columns: 120 } })
+  const desk = await mountDesk($, TEXT)
+  await settleAll(clock)
+  const w0 = walk(await desk.drawn(), n => n.props?.key === 'w-0')[0]
+  expect(w0?.props?.label).toBe('diànnǎo')
 })
