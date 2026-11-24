@@ -16,6 +16,7 @@ export const DEFAULT_SETTINGS: OsmosisSettings = {
   show: 'hanzi',
   isBandOn: true,
   isStatusOn: true,
+  isFocusOn: true,
   copy: 'english',
   debug: false,
   coverage: 'natural',
@@ -911,6 +912,7 @@ export const SETTING_ROWS: readonly SettingRow[] = [
   { command: 'card', keyName: 'card', label: 'Hover card', key: 'card', values: [['word', 'At the word', 'word'], ['bar', 'In the bar', 'bar'], ['both', 'Both', 'both']], help: 'Where the word card appears when you point at a word.' },
   { command: 'band', keyName: 'bar', label: 'Hover bar', key: 'isBandOn', values: [['on', 'On', true], ['off', 'Off', false]], help: "The line above the prompt with today's count and bar cards." },
   { command: 'status', keyName: 'status', label: 'Status line', key: 'isStatusOn', values: [['on', 'On', true], ['off', 'Off', false]], help: 'The \u{1F331} entry under the prompt.' },
+  { command: 'focus', keyName: 'focus', label: 'Focus pane', key: 'isFocusOn', values: [['on', 'On', true], ['off', 'Off', false]], help: 'Clicking a word moves the keyboard to the pane, so its keys work at once.' },
   { command: 'copy', keyName: 'copy', label: 'Copy', key: 'copy', values: [['english', 'English', 'english'], ['shown', 'As shown', 'shown']], help: 'English pastes copied text in English; As shown does not.' },
   { command: 'cap', keyName: 'cap', label: 'Daily cap', key: 'cap', values: [['off', 'Off', 'off'], ['100k', '100k', '100k'], ['300k', '300k', '300k'], ['1m', '1M', '1m']], help: 'Stop translating after this many Haiku tokens a day.' },
   { command: 'model', keyName: 'model', label: 'Model', key: 'model', values: [['haiku', 'Haiku', 'haiku'], ['local', 'Local', 'local']], help: 'Haiku (default) or a local model on your machine.' },
@@ -992,4 +994,15 @@ export function audioName(text: string): string {
 export function ttsClips(words: readonly OsmosisWord[]): { text: string; name: string }[] {
   const texts = new Set(words.flatMap(w => [w.target, w.exampleTarget]).filter(Boolean))
   return [...texts].map(text => ({ text, name: audioName(text) }))
+}
+
+// The pane key a keystroke into the prompt stands for: one of the pane's keys typed into an empty box.
+// The terminal reports the draft before the key and the key typed; the desktop app reports the draft
+// with the key already in it and nothing typed.
+const PANE_KEYS = new Set(['s', 'b', 'k', 'n', 'p', 'x'])
+
+export function promptPaneKey(draft: string, typed: string): string | null {
+  if (draft === '' && PANE_KEYS.has(typed)) return typed
+  if (typed === '' && PANE_KEYS.has(draft)) return draft
+  return null
 }

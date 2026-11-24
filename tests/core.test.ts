@@ -621,3 +621,18 @@ describe('show: any mix of hanzi, pinyin and English', () => {
     expect(showLabel('hanzi+pinyin+english')).toBe('Hanzi + Pinyin + English')
   })
 })
+
+import { promptPaneKey } from '../hooks/core'
+
+describe('pane keys typed into the prompt', () => {
+  test('one pane key into an empty prompt is the pane key; anything else is typing', () => {
+    expect(promptPaneKey('', 's')).toBe('s')
+    expect(promptPaneKey('', 'x')).toBe('x')
+    expect(promptPaneKey('', 'S')).toBe(null)
+    expect(promptPaneKey('', 'a')).toBe(null)
+    expect(promptPaneKey('', 'so')).toBe(null)
+    expect(promptPaneKey('hi', 's')).toBe(null)
+    expect(promptPaneKey('s', '')).toBe('s')
+    expect(promptPaneKey('so', '')).toBe(null)
+  })
+})

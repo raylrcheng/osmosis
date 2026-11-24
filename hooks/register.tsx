@@ -48,6 +48,7 @@ import {
   showParts,
   showValue,
   toggleShow,
+  promptPaneKey,
 } from './core'
 import type { CardPlace, HistoryRow, OnScreenRows, Segment, ShowPart } from './core'
 import { revertCopy } from './copyback'
@@ -676,10 +677,57 @@ function noteFallbacks(msgKey: string, scopes: string[]): boolean {
 
 // ---------- pane actions ----------
 
-async function openPane($: $T) {
-  const s = await read($, settingsAtom)
-  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true })
+// A surface that ignores the pane's focus request (the desktop app) still lets the pane's keys
+// work: after a word click, one of them typed into an empty prompt is taken as the pane's key.
+let areKeysArmed = false
+let wasPaneFocused = false
+
+// The desktop app gives the first key after a word click to the prompt without an edit for it, and
+// moves the pane's focus back to the prompt: read the box then, and take one pane key out of it.
+async function catchPaneKey($: $T) {
+  // Read at once so the key barely shows; again shortly after, in case it has not landed yet.
+  let k: string | null = null
+  for (const wait of [0, 20, 40]) {
+    if (wait) await $.clock.sleep(wait)
+    const box = await $.prompt.read().catch(() => ({ text: '' }))
+    k = promptPaneKey(box.text, '')
+    if (k || box.text !== '') break
+  }
+  if (!k) return
+  areKeysArmed = k !== 'x'
+  await $.prompt.fill({ text: '' }).catch(() => undefined)
+  await paneKey($, k)
 }
+
+async function paneKey($: $T, k: string) {
+  const selected = await read($, selectedAtom)
+  const key = selected?.key ?? (await read($, latestAtom))
+  const words = await wordsOf($, key)
+  const w = selected && selected.key === key ? words[selected.index] : undefined
+  const example = w ? await exampleFor($, w, false) : null
+  const act = actions($, key, words, example?.status === 'ok' ? example.target : '')
+  note(`pane key=${k} from prompt`)
+  if (k === 'x') return act.close()
+  if (k === 'n' || k === 'p') return act.step(k === 'n' ? 1 : -1)
+  if (!w) return
+  if (k === 's') act.speak(w)
+  else if (k === 'b') act.toggleSave(w)
+  else act.toggleKnown(w)
+}
+
+async function openPane($: $T, isFromWord = false) {
+  const s = await read($, settingsAtom)
+  const isFocus = isFromWord && s.isFocusOn
+  // Only an empty prompt arms the pane keys, so a draft is never taken for one.
+  areKeysArmed = isFocus && (await $.prompt.read().catch(() => ({ text: '' }))).text === ''
+  if (isFocus) {
+    // Opening a pane that is already up only retitles it, so the focus request would be dropped.
+    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+    if (up?.isPlaced && !up.isFocused) await $.ui.close({ id: PANE }).catch(() => undefined)
+  }
+  await $.ui.open({ id: PANE, title: `Osmosis ${langInfo(s.lang).label}`, closeOnEscape: true, ...(isFocus ? { focus: true as const } : {}) })
+}
+
 
 async function wordsOf($: $T, key: string | null): Promise<OsmosisWord[]> {
   if (!key) return []
@@ -909,7 +957,7 @@ function drawReply(
       flushSoon($)
       await update($, selectedAtom, () => ({ key, index }))
       await update($, viewAtom, () => 'home' as const)
-      await openPane($)
+      await openPane($, true)
     })()
   const floating = cards ? [...cards.values()].filter(p => p.kind !== 'bar').length : 0
   note(`${status} swaps=${swaps} cards=${floating} bar=${cards ? cards.size - floating : 0} columns=${view.columns}`)
@@ -944,7 +992,7 @@ export const register: Register = on => {
       await $.command.register({
         name: 'osmosis',
         description: 'Osmosis Chinese practice: open the word pane, or change settings',
-        argumentHint: '[help|on|off|level|density|show|coverage|card|band|status|copy|cap|model|endpoint|bank|quiz|export|lang]',
+        argumentHint: '[help|on|off|level|density|show|coverage|card|band|status|focus|copy|cap|model|endpoint|bank|quiz|export|lang]',
         immediate: true,
       })
     } catch {
@@ -1033,6 +1081,26 @@ export const register: Register = on => {
     }
   })
 
+  on('prompt.edit', async ($, e, next) => {
+    // An edit that changes nothing (a caret move as the box takes focus back) keeps the keys armed.
+    if (!areKeysArmed || (e.text === '' && e.inputText === '')) return next(e)
+    const k = promptPaneKey(e.text, e.inputText)
+    if (!k) {
+      areKeysArmed = false
+      return next(e)
+    }
+    const up = (await $.ui.panes().catch(() => [])).find(p => p.id === PANE)
+    if (!up?.isPlaced) {
+      areKeysArmed = false
+      return next(e)
+    }
+    if (k === 'x') areKeysArmed = false
+    await paneKey($, k)
+    // Where the key is already in the box (the desktop app), take it back out.
+    if (e.inputText === '') void $.prompt.fill({ text: '' }).catch(() => undefined)
+    return { text: '', cursor: 0 }
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (isChild) return next(e)
     const s = await read($, settingsAtom)
@@ -1057,6 +1125,8 @@ export const register: Register = on => {
     const s = await read($, settingsAtom)
     const view = await read($, viewAtom)
     note(`pane surface=${e.surface} placement=${e.props.placement} focused=${e.props.isFocused}`)
+    if (wasPaneFocused && !e.props.isFocused && areKeysArmed) void catchPaneKey($)
+    wasPaneFocused = e.props.isFocused
     const progress = await read($, progressAtom)
     if (view === 'bank') return drawBank(els, progress, actions($, null, [], ''))
     if (view === 'quiz') return drawQuiz(els, await read($, quizAtom), actions($, null, [], ''))
