@@ -1,6 +1,6 @@
 {
   "name": "osmosis",
-  "version": "0.2.4",
+  "version": "0.3.0",
   "description": "Learn Mandarin by osmosis: swaps some English words in Claude's replies for Chinese on screen only. Hover a word for its meaning, click it for more, /osmosis for settings.",
   "author": {
     "name": "raylrcheng"
